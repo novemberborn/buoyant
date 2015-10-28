@@ -1,0 +1,19 @@
+{
+  "name": "buoyant",
+  "version": "0.0.0",
+  "description": "Framework for implementing servers using the Raft Consensus Algorithm",
+  "keywords": ["raft", "consensus"],
+  "author": "Mark Wubben (http://novemberborn.net/)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/novemberborn/buoyant"
+  },
+  "homepage": "https://github.com/novemberborn/buoyant",
+  "bugs": "https://github.com/novemberborn/buoyant/issues",
+  "license": "ISC",
+  "engines": { "node": ">=5.0.0" },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
