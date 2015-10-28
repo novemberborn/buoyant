@@ -14,6 +14,10 @@
   "engines": { "node": ">=5.0.0" },
   "main": "index.js",
   "scripts": {
+    "lint": "standard",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "standard": "^5.3.1"
   }
 }
