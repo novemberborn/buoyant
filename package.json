@@ -21,6 +21,7 @@
   "scripts": {
     "build": "npm run clean && babel src --out-dir ./ --source-maps",
     "clean": "rimraf index.js index.js.map",
+    "example": "node bin/example.js",
     "lint": "standard",
     "prepublish": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -33,6 +34,7 @@
     "babel-plugin-transform-es2015-parameters": "^6.0.18",
     "babel-plugin-transform-strict-mode": "^6.1.2",
     "rimraf": "^2.4.3",
+    "source-map-support": "^0.3.3",
     "standard": "^5.3.1"
   }
 }
