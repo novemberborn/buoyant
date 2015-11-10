@@ -8,15 +8,15 @@ const sourceMapSupport = require('source-map-support')
 // Resolve the example location relative to the current working directory.
 const mod = path.resolve('example', process.argv[2])
 
-// Fix up argv so the example thinks it was invoked directly. Note that we're
-// not fixing other properties like execArgv.
+// Fix up argv so the example thinks it was invoked directly. Don't fix other
+// properties like execArgv.
 process.argv = ['node', mod].concat(process.argv.slice(3))
 
 // Cache source maps for the example modules that were transformed on the fly.
 const transformMaps = Object.create(null)
 
-// Hook up source map support to rewrite stack traces. Use our cached source
-// maps but fall back to retrieving them from the pragma in the source file. The
+// Hook up source map support to rewrite stack traces. Use cached source maps
+// but fall back to retrieving them from the pragma in the source file. The
 // latter will work for `npm run build` output.
 sourceMapSupport.install({
   environment: 'node',
