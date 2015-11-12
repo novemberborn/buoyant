@@ -25,11 +25,12 @@
     "src"
   ],
   "scripts": {
-    "build": "npm run clean && babel src --out-dir ./ --source-maps",
     "clean": "rimraf index.js index.js.map lib",
+    "prebuild": "npm run clean",
+    "build": "babel src --out-dir ./ --source-maps",
+    "prepublish": "npm run build",
     "example": "node bin/example.js",
     "lint": "standard",
-    "prepublish": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {
