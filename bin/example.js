@@ -38,7 +38,7 @@ require.extensions['.js'] = function (module, filename) {
   }
 
   const result = babel.transformFileSync(filename, {
-    sourceMap: 'both',
+    sourceMap: true,
     ast: false
   })
 
