@@ -20,7 +20,7 @@ export function createServer ({
   crashHandler
 }) {
   if (typeof address === 'string') {
-    address = Address.fromUrl(address)
+    address = new Address(address)
   } else if (!Address.is(address)) {
     throw new TypeError("Parameter 'address' must be a string or an Address instance")
   }

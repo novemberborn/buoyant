@@ -91,7 +91,7 @@ export default class Server {
   join (addresses = []) {
     return new Promise(resolve => {
       addresses = Array.from(addresses, item => {
-        return Address.is(item) ? item : Address.fromUrl(item)
+        return Address.is(item) ? item : new Address(item)
       })
 
       if (!this._allowJoin) {
