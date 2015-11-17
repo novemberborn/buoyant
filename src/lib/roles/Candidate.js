@@ -48,12 +48,13 @@ export default class Candidate {
     })
 
     this.requestVote()
+    this.inputConsumer.start()
   }
 
   destroy () {
     this.destroyed = true
     clearTimeout(this.timer)
-    this.inputConsumer.halt()
+    this.inputConsumer.stop()
     this.scheduler.abort()
   }
 

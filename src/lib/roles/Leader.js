@@ -58,12 +58,14 @@ export default class Leader {
     // Claim leadership by appending a no-op entry. Committing that entry also
     // causes any uncommitted entries from previous terms to be committed.
     this.append(Noop)
+
+    this.inputConsumer.start()
   }
 
   destroy () {
     this.destroyed = true
     clearInterval(this.timer)
-    this.inputConsumer.halt()
+    this.inputConsumer.stop()
     this.scheduler.abort()
     for (const { reject } of this.pendingApplication) {
       reject(new Error('No longer leader'))

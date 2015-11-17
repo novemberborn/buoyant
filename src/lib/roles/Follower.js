@@ -37,19 +37,23 @@ export default class Follower {
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
-      initial: replayMessage,
       peers,
       nonPeerReceiver,
       scheduler: this.scheduler,
       handleMessage: this.handleMessage.bind(this),
       crashHandler
     })
+
+    if (replayMessage) {
+      this.handleMessage(...replayMessage)
+    }
+    this.inputConsumer.start()
   }
 
   destroy () {
     this.destroyed = true
     clearInterval(this.timer)
-    this.inputConsumer.halt()
+    this.inputConsumer.stop()
     this.scheduler.abort()
   }
 
