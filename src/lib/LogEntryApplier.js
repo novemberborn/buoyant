@@ -6,7 +6,7 @@ export default class LogEntryApplier {
     this.lastApplied = 0 // index of the entry that was last successfully applied
     this.lastQueued = 0 // index of the entry that was last enqueued to be applied
 
-    this.processing = false
+    this.busy = false
     this.queue = []
 
     this.applyEntry = applyEntry
@@ -14,11 +14,11 @@ export default class LogEntryApplier {
   }
 
   reset (lastApplied) {
-    if (!Number.isInteger(lastApplied) || lastApplied < 0 || !Number.isSafeInteger(lastApplied)) {
+    if (!Number.isSafeInteger(lastApplied) || lastApplied < 0) {
       throw new TypeError('Cannot reset log entry applier: last-applied index must be a safe, non-negative integer')
     }
 
-    if (this.queue.length > 0) {
+    if (this.busy) {
       throw new Error('Cannot reset log entry applier while entries are being applied')
     }
 
@@ -29,15 +29,11 @@ export default class LogEntryApplier {
   enqueue (entry, resolve = null) {
     this.queue.push([entry, resolve])
     this.lastQueued = entry.index
-
-    // Start applying entries if this is the first new one.
-    if (!this.processing) {
-      this.processQueue()
-    }
+    this.applyNext()
   }
 
   finish () {
-    if (!this.processing) return Promise.resolve()
+    if (!this.busy) return Promise.resolve()
 
     return new Promise(resolve => {
       // Append a fake entry to resolve the finish promise once all entries have
@@ -50,8 +46,9 @@ export default class LogEntryApplier {
     this.queue = []
   }
 
-  processQueue () {
-    this.processing = true
+  applyNext () {
+    if (this.busy) return
+    this.busy = true
 
     const [entry, resolve] = this.queue.shift()
 
@@ -64,10 +61,9 @@ export default class LogEntryApplier {
       }
 
       // Process the next item, if any.
+      this.busy = false
       if (this.queue.length > 0) {
-        this.processQueue()
-      } else {
-        this.processing = false
+        this.applyNext()
       }
     }
 
