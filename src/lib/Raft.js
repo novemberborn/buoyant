@@ -5,6 +5,7 @@ import Follower from './roles/Follower'
 import Leader from './roles/Leader'
 
 import Log from './Log'
+import LogEntryApplier from './LogEntryApplier'
 import State from './State'
 
 import Peer from './Peer'
@@ -34,8 +35,7 @@ export default class Raft {
     this.state = new State(persistState)
     this.log = new Log({
       persistEntries,
-      applyEntry,
-      crashHandler
+      applier: new LogEntryApplier({ applyEntry, crashHandler })
     })
 
     this.crashHandler = crashHandler

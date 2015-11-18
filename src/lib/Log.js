@@ -1,4 +1,3 @@
-import LogEntryApplier from './LogEntryApplier'
 import Entry from './Entry'
 
 // Manages the log for each server. Contains all entries. Responsible for
@@ -6,20 +5,14 @@ import Entry from './Entry'
 export default class Log {
   constructor ({
     persistEntries,
-    applyEntry,
-    crashHandler
+    applier
   }) {
     this.entries = new Map()
     this.lastIndex = 0
     this.lastTerm = 0
 
     this.persistEntries = persistEntries
-    this.crashHandler = crashHandler
-
-    this.applier = new LogEntryApplier({
-      applyEntry,
-      crashHandler
-    })
+    this.applier = applier
   }
 
   close () {
@@ -43,6 +36,8 @@ export default class Log {
     for (const entry of entries) {
       // Resolve conflicts within the entries so the persistence implementation
       // does not have to worry about them.
+      //
+      // Assumes entries are ordered correctly.
       if (this.entries.has(entry.index)) {
         this.deleteConflictingEntries(entry.index)
       }
