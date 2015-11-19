@@ -12,6 +12,6 @@ export default class NonPeerReceiver {
   }
 
   createPeer (address) {
-    return this.connect(address).then(stream => new Peer(address, stream))
+    return this.connect({ address, writeOnly: true }).then(stream => new Peer(address, stream))
   }
 }

@@ -113,8 +113,8 @@ export default class Server {
         .then(nonPeerStream => {
           return this._raft.joinInitialCluster({
             addresses,
-            connect: address => {
-              return new Promise(resolve => resolve(this._transport.connect(address)))
+            connect: opts => {
+              return new Promise(resolve => resolve(this._transport.connect(opts)))
             },
             nonPeerStream
           })
