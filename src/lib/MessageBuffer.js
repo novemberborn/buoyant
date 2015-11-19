@@ -33,14 +33,13 @@ export default class MessageBuffer {
 
     this.awaiting = new Promise(resolve => {
       if (this.canTake()) {
-        this.awaiting = null
         resolve()
       } else {
-        this.stream.once('readable', () => {
-          this.awaiting = null
-          resolve()
-        })
+        this.stream.once('readable', resolve)
       }
+    }).then(() => {
+      this.awaiting = null
+      return undefined
     })
     return this.awaiting
   }
