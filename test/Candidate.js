@@ -1,9 +1,16 @@
+import { resolve } from 'path'
+
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
 import { install as installClock } from 'lolex'
 import sinon from 'sinon'
 
+import {
+  setupConstructors,
+  testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
+  testMessageHandlerMapping,
+  testSchedulerDestruction, testSchedulerInstantiation
+} from './support/role-tests'
 import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
 
 import {
@@ -11,27 +18,13 @@ import {
   RequestVote, DenyVote, GrantVote
 } from '../lib/symbols'
 
-import InputConsumer from '../lib/InputConsumer'
-import Scheduler from '../lib/Scheduler'
-
 describe('roles/Candidate', () => {
   before(ctx => ctx.clock = installClock(0, ['setTimeout', 'clearTimeout']))
   after(ctx => ctx.clock.uninstall())
 
-  before(ctx => {
-    ctx.InputConsumer = sinon.spy(function (...args) { return new InputConsumer(...args) })
-    ctx.Scheduler = sinon.spy(function (...args) { return new Scheduler(...args) })
-
-    ctx.Candidate = proxyquire.noCallThru()('../lib/roles/Candidate', {
-      '../InputConsumer': function (...args) { return ctx.InputConsumer(...args) },
-      '../Scheduler': function (...args) { return ctx.Scheduler(...args) }
-    })['default']
-  })
+  setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
 
   beforeEach(ctx => {
-    ctx.InputConsumer.reset()
-    ctx.Scheduler.reset()
-
     const ourId = ctx.ourId = Symbol()
     const electionTimeout = ctx.electionTimeout = 10
     const state = ctx.state = stubState()
@@ -48,43 +41,8 @@ describe('roles/Candidate', () => {
   afterEach(ctx => !ctx.candidate.destroyed && ctx.candidate.destroy())
 
   describe('constructor ({ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader })', () => {
-    it('instantiates a scheduler', ctx => {
-      assert(ctx.candidate.scheduler instanceof Scheduler)
-      sinon.assert.calledOnce(ctx.Scheduler)
-      const { args: [crashHandler] } = ctx.Scheduler.getCall(0)
-      assert(crashHandler === ctx.crashHandler)
-    })
-
-    it('instantiates an input consumer', ctx => {
-      assert(ctx.candidate.inputConsumer instanceof InputConsumer)
-    })
-
-    it('instantiates an input consumer', ctx => {
-      assert(ctx.candidate.inputConsumer instanceof InputConsumer)
-      sinon.assert.calledOnce(ctx.InputConsumer)
-      const { args: [{ peers, nonPeerReceiver, scheduler, handleMessage, crashHandler }] } = ctx.InputConsumer.getCall(0)
-      assert(peers === ctx.peers)
-      assert(nonPeerReceiver === ctx.nonPeerReceiver)
-      assert(scheduler === ctx.candidate.scheduler)
-      assert(typeof handleMessage === 'function')
-      assert(crashHandler === ctx.crashHandler)
-    })
-
-    context('a message is read by the input consumer', () => {
-      it(`calls handleMessage on the candidate`, ctx => {
-        // Ensure message can be read
-        const message = Symbol()
-        ctx.peer.messages.take.onCall(0).returns(message)
-        ctx.peer.messages.canTake.onCall(0).returns(true)
-
-        let handleMessage = sinon.stub(ctx.candidate, 'handleMessage')
-        ctx.candidate.inputConsumer.start()
-
-        sinon.assert.calledOnce(handleMessage)
-        sinon.assert.calledOn(handleMessage, ctx.candidate)
-        sinon.assert.calledWithExactly(handleMessage, ctx.peer, message)
-      })
-    })
+    testInputConsumerInstantiation('candidate', ctx => ctx.candidate, ctx => ctx.crashHandler)
+    testSchedulerInstantiation(ctx => ctx.candidate, ctx => ctx.crashHandler)
   })
 
   describe('#start ()', () => {
@@ -94,11 +52,7 @@ describe('roles/Candidate', () => {
       sinon.assert.calledOnce(spy)
     })
 
-    it('starts the input consumer', ctx => {
-      const spy = sinon.spy(ctx.candidate.inputConsumer, 'start')
-      ctx.candidate.start()
-      sinon.assert.calledOnce(spy)
-    })
+    testInputConsumerStart(ctx => ctx.candidate)
   })
 
   describe('#destroy ()', () => {
@@ -114,17 +68,8 @@ describe('roles/Candidate', () => {
       sinon.assert.calledOnce(spy) // should not be called again
     })
 
-    it('stops the input consumer', ctx => {
-      const spy = sinon.spy(ctx.candidate.inputConsumer, 'stop')
-      ctx.candidate.destroy()
-      sinon.assert.calledOnce(spy)
-    })
-
-    it('aborts the scheduler', ctx => {
-      const spy = sinon.spy(ctx.candidate.scheduler, 'abort')
-      ctx.candidate.destroy()
-      sinon.assert.calledOnce(spy)
-    })
+    testInputConsumerDestruction(ctx => ctx.candidate)
+    testSchedulerDestruction(ctx => ctx.candidate)
   })
 
   describe('#requestVote ()', () => {
@@ -240,34 +185,11 @@ describe('roles/Candidate', () => {
       })
     })
 
-    ;[
+    testMessageHandlerMapping(ctx => [ctx.candidate, ctx.peer], [
       { type: RequestVote, label: 'RequestVote', method: 'handleRequestVote' },
       { type: GrantVote, label: 'GrantVote', method: 'handleGrantVote' },
       { type: AppendEntries, label: 'AppendEntries', method: 'handleAppendEntries' }
-    ].forEach(({ type, label, method }) => {
-      context(`the message type is ${label}`, () => {
-        it(`calls ${method} with the peer, the message’s term, and the message itself`, ctx => {
-          const stub = sinon.stub(ctx.candidate, method)
-          const message = { type, term: 1 }
-          ctx.candidate.handleMessage(ctx.peer, message)
-
-          sinon.assert.calledOnce(stub)
-          sinon.assert.calledWithExactly(stub, ctx.peer, message.term, message)
-        })
-
-        it(`returns the result of calling ${method}`, ctx => {
-          const result = Symbol()
-          sinon.stub(ctx.candidate, method).returns(result)
-          assert(ctx.candidate.handleMessage(ctx.peer, { type, term: 1 }) === result)
-        })
-      })
-    })
-
-    context('the message type is unknown', () => {
-      it('doesn’t do anything', ctx => {
-        assert(ctx.candidate.handleMessage(ctx.peer, { type: Symbol(), term: 1 }) === undefined)
-      })
-    })
+    ])
   })
 
   describe('#handleRequestVote (peer, term)', () => {

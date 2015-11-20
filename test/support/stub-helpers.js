@@ -1,12 +1,18 @@
 import sinon from 'sinon'
 
 export function stubLog () {
-  return sinon.stub({
+  const log = sinon.stub({
     _lastIndex () {},
     get lastIndex () { return this._lastIndex() },
     _lastTerm () {},
-    get lastTerm () { return this._lastTerm() }
+    get lastTerm () { return this._lastTerm() },
+    commit () {},
+    getEntry () {},
+    mergeEntries () {}
   })
+  log.getEntry.returns(undefined)
+  log.mergeEntries.returns(Promise.resolve())
+  return log
 }
 
 export function stubMessages () {
@@ -26,10 +32,14 @@ export function stubState () {
   const state = sinon.stub({
     _currentTerm () {},
     get currentTerm () { return this._currentTerm() },
+    _votedFor () {},
+    get votedFor () { return this._votedFor() },
     nextTerm () {},
-    setTerm () {}
+    setTerm () {},
+    setTermAndVote () {}
   })
   state.nextTerm.returns(Promise.resolve())
   state.setTerm.returns(Promise.resolve())
+  state.setTermAndVote.returns(Promise.resolve())
   return state
 }

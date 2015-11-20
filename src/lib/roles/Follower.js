@@ -30,7 +30,7 @@ export default class Follower {
     this.destroyed = false
     this.commitIndex = 0
 
-    this.skipNextElection = false
+    this.ignoreNextElectionTimeout = false
     this.scheduledTimeoutHandler = false
     this.timer = null
 
@@ -39,7 +39,7 @@ export default class Follower {
       peers,
       nonPeerReceiver,
       scheduler: this.scheduler,
-      handleMessage: this.handleMessage.bind(this),
+      handleMessage: (peer, message) => this.handleMessage(peer, message),
       crashHandler
     })
   }
@@ -73,11 +73,11 @@ export default class Follower {
       this.scheduledTimeoutHandler = false
 
       // Rather than creating a new timer after receiving a message from the
-      // leader, set a flag to skip the next election. This should be more
-      // efficient, although it may cause the follower to delay a bit longer
-      // before starting a new election.
-      if (this.skipNextElection) {
-        this.skipNextElection = false
+      // leader, set a flag to ignore the next election timeout. This should be
+      // more efficient, although it may cause the follower to delay a bit
+      // longer before starting a new election.
+      if (this.ignoreNextElectionTimeout) {
+        this.ignoreNextElectionTimeout = false
         return
       }
 
@@ -87,11 +87,11 @@ export default class Follower {
   }
 
   handleMessage (peer, message) {
-    const { type } = message
-    if (handlerMap[type]) return this[handlerMap[type]](peer, message)
+    const { type, term } = message
+    if (handlerMap[type]) return this[handlerMap[type]](peer, term, message)
   }
 
-  handleRequestVote (peer, { term, lastLogIndex, lastLogTerm }) {
+  handleRequestVote (peer, term, { lastLogIndex, lastLogTerm }) {
     // Deny the vote if it's for an older term. Send the current term in the
     // reply so the other candidate can update itself.
     if (term < this.state.currentTerm) {
@@ -112,7 +112,7 @@ export default class Follower {
         if (this.destroyed) return
 
         // Give the candidate a chance to win the election.
-        this.skipNextElection = true
+        this.ignoreNextElectionTimeout = true
 
         peer.send({
           type: GrantVote,
@@ -126,7 +126,7 @@ export default class Follower {
     }
   }
 
-  handleAppendEntries (peer, { term, prevLogIndex, prevLogTerm, entries, leaderCommit }) {
+  handleAppendEntries (peer, term, { prevLogIndex, prevLogTerm, entries, leaderCommit }) {
     // Reject the entries if they're part of an older term. The peer has already
     // been deposed as leader but it just doesn't know it yet. Let it know by
     // sending the current term in the reply.
@@ -157,7 +157,7 @@ export default class Follower {
     }
 
     // Avoid accidentally deposing the leader.
-    this.skipNextElection = true
+    this.ignoreNextElectionTimeout = true
 
     // Merge any entries into the log.
     let pending = this.log.mergeEntries(entries)
