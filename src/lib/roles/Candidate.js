@@ -46,8 +46,12 @@ export default class Candidate {
       handleMessage: this.handleMessage.bind(this),
       crashHandler
     })
+  }
 
+  start () {
     this.requestVote()
+
+    // Start last so it doesn't preempt requesting votes.
     this.inputConsumer.start()
   }
 

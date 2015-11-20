@@ -20,8 +20,7 @@ export default class Follower {
     peers,
     nonPeerReceiver,
     crashHandler,
-    convertToCandidate,
-    replayMessage
+    convertToCandidate
   }) {
     this.electionTimeout = electionTimeout
     this.state = state
@@ -33,7 +32,7 @@ export default class Follower {
 
     this.skipNextElection = false
     this.scheduledTimeoutHandler = false
-    this.timer = setInterval(() => this.maybeStartElection(), this.electionTimeout)
+    this.timer = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
@@ -43,10 +42,16 @@ export default class Follower {
       handleMessage: this.handleMessage.bind(this),
       crashHandler
     })
+  }
+
+  start (replayMessage) {
+    this.timer = setInterval(() => this.maybeStartElection(), this.electionTimeout)
 
     if (replayMessage) {
-      this.handleMessage(...replayMessage)
+      this.scheduler.asap(null, () => this.handleMessage(...replayMessage))
     }
+
+    // Start last so it doesn't preempt handling the replay message.
     this.inputConsumer.start()
   }
 

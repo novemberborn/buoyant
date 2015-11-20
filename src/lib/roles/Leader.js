@@ -44,7 +44,7 @@ export default class Leader {
       })
     }, new Map())
     this.skipNextHeartbeat = false
-    this.timer = setInterval(() => this.sendHeartbeat(), this.heartbeatInterval)
+    this.timer = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
@@ -54,11 +54,16 @@ export default class Leader {
       handleMessage: this.handleMessage.bind(this),
       crashHandler
     })
+  }
+
+  start () {
+    this.timer = setInterval(() => this.sendHeartbeat(), this.heartbeatInterval)
 
     // Claim leadership by appending a no-op entry. Committing that entry also
     // causes any uncommitted entries from previous terms to be committed.
     this.append(Noop)
 
+    // Start last so it doesn't preempt claiming leadership.
     this.inputConsumer.start()
   }
 
