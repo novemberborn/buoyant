@@ -24,6 +24,48 @@ export function setupConstructors (roleSource) {
   })
 }
 
+export function testFollowerConversion (label, getRole) {
+  context('the message’s term is newer', () => {
+    beforeEach(ctx => {
+      ctx.role = getRole(ctx)
+      ctx.state._currentTerm.returns(1)
+      ctx.message = { term: 2 }
+    })
+
+    it('sets the term to that of the message', ctx => {
+      ctx.role.handleMessage(ctx.peer, ctx.message)
+      sinon.assert.calledOnce(ctx.state.setTerm)
+      sinon.assert.calledWithExactly(ctx.state.setTerm, 2)
+    })
+
+    it('returns a promise', ctx => {
+      assert(ctx.role.handleMessage(ctx.peer, ctx.message) instanceof Promise)
+    })
+
+    context(`the ${label} was destroyed while persisting the state`, () => {
+      it('does not convert to follower', async ctx => {
+        let persisted
+        ctx.state.setTerm.returns(new Promise(resolve => persisted = resolve))
+
+        ctx.role.handleMessage(ctx.peer, ctx.message)
+        ctx.role.destroy()
+        persisted()
+
+        await Promise.resolve()
+        sinon.assert.notCalled(ctx.convertToFollower)
+      })
+    })
+
+    context(`the ${label} was not destroyed while persisting the state`, () => {
+      it('converts to follower', async ctx => {
+        await ctx.role.handleMessage(ctx.peer, ctx.message)
+        sinon.assert.calledOnce(ctx.convertToFollower)
+        sinon.assert.calledWithMatch(ctx.convertToFollower, [sinon.match.same(ctx.peer), sinon.match.same(ctx.message)])
+      })
+    })
+  })
+}
+
 export function testInputConsumerDestruction (getRole) {
   it('stops the input consumer', ctx => {
     const role = getRole(ctx)

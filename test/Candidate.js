@@ -7,6 +7,7 @@ import sinon from 'sinon'
 
 import {
   setupConstructors,
+  testFollowerConversion,
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
@@ -146,44 +147,7 @@ describe('roles/Candidate', () => {
   })
 
   describe('#handleMessage (peer, message)', () => {
-    context('the message’s term is newer', () => {
-      beforeEach(ctx => {
-        ctx.state._currentTerm.returns(1)
-        ctx.message = { term: 2 }
-      })
-
-      it('sets the term to that of the message', ctx => {
-        ctx.candidate.handleMessage(ctx.peer, ctx.message)
-        sinon.assert.calledOnce(ctx.state.setTerm)
-        sinon.assert.calledWithExactly(ctx.state.setTerm, 2)
-      })
-
-      it('returns a promise', ctx => {
-        assert(ctx.candidate.handleMessage(ctx.peer, ctx.message) instanceof Promise)
-      })
-
-      context('the candidate was destroyed while persisting the state', () => {
-        it('does not convert to follower', async ctx => {
-          let persisted
-          ctx.state.setTerm.returns(new Promise(resolve => persisted = resolve))
-
-          ctx.candidate.handleMessage(ctx.peer, ctx.message)
-          ctx.candidate.destroy()
-          persisted()
-
-          await Promise.resolve()
-          sinon.assert.notCalled(ctx.convertToFollower)
-        })
-      })
-
-      context('the candidate was not destroyed while persisting the state', () => {
-        it('converts to follower', async ctx => {
-          await ctx.candidate.handleMessage(ctx.peer, ctx.message)
-          sinon.assert.calledOnce(ctx.convertToFollower)
-          sinon.assert.calledWithMatch(ctx.convertToFollower, [sinon.match.same(ctx.peer), sinon.match.same(ctx.message)])
-        })
-      })
-    })
+    testFollowerConversion('candidate', ctx => ctx.candidate)
 
     testMessageHandlerMapping(ctx => [ctx.candidate, ctx.peer], [
       { type: RequestVote, label: 'RequestVote', method: 'handleRequestVote' },

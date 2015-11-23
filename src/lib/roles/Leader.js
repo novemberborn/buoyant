@@ -51,7 +51,7 @@ export default class Leader {
       peers,
       nonPeerReceiver,
       scheduler: this.scheduler,
-      handleMessage: this.handleMessage.bind(this),
+      handleMessage: (peer, message) => this.handleMessage(peer, message),
       crashHandler
     })
   }

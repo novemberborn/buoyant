@@ -6,12 +6,21 @@ export function stubLog () {
     get lastIndex () { return this._lastIndex() },
     _lastTerm () {},
     get lastTerm () { return this._lastTerm() },
+    appendValue () {},
     commit () {},
     getEntry () {},
-    mergeEntries () {}
+    getTerm () {},
+    mergeEntries () {},
+    getEntriesSince () {}
   })
+  log._lastIndex.returns(0)
   log.getEntry.returns(undefined)
   log.mergeEntries.returns(Promise.resolve())
+
+  log.appendValue.throws(new Error('appendValue() stub must be customized'))
+  log.getTerm.throws(new Error('getTerm() stub must be customized'))
+  log.getEntriesSince.throws(new Error('getEntriesSince() stub must be customized'))
+
   return log
 }
 
