@@ -68,9 +68,12 @@ export default class Server {
     if (!this._closeInProgress) {
       this._allowJoin = false
 
+      const transport = this._transport
+      this._transport = null
+
       this._closeInProgress = Promise.all([
-        this._transport && new Promise(resolve => resolve(this._transport.destroy())),
-        this._raft.stop()
+        transport && new Promise(resolve => resolve(transport.destroy())),
+        this._raft.close()
       ]).then(() => {})
     }
 
@@ -81,10 +84,15 @@ export default class Server {
   destroy () {
     this._allowJoin = false
 
-    return Promise.all([
-      this._transport && new Promise(resolve => resolve(this._transport.destroy())),
+    const transport = this._transport
+    this._transport = null
+
+    this._closeInProgress = Promise.all([
+      transport && new Promise(resolve => resolve(transport.destroy())),
       this._raft.destroy()
     ]).then(() => {})
+
+    return this._closeInProgress
   }
 
   // Join a cluster.
@@ -129,8 +137,9 @@ export default class Server {
 
           const rethrow = () => { throw err }
           return new Promise(resolve => {
-            resolve(this._transport.destroy())
+            const transport = this._transport
             this._transport = null
+            resolve(transport.destroy())
           }).then(rethrow, rethrow)
         })
 
