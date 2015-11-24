@@ -1,5 +1,3 @@
-import NonPeerReceiver from './NonPeerReceiver'
-
 import Candidate from './roles/Candidate'
 import Follower from './roles/Follower'
 import Leader from './roles/Leader'
@@ -8,6 +6,7 @@ import Log from './Log'
 import LogEntryApplier from './LogEntryApplier'
 import State from './State'
 
+import NonPeerReceiver from './NonPeerReceiver'
 import Peer from './Peer'
 
 function intInRange (range) {
@@ -187,7 +186,7 @@ export default class Raft {
   }
 
   append (value) {
-    if (!this.currentRole.append) {
+    if (!this.currentRole || !this.currentRole.append) {
       return Promise.reject(new Error('Not leader'))
     }
 
