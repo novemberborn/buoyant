@@ -41,8 +41,7 @@ npm install --save buoyant
 
 ## Roadmap
 
-* Full test coverage and
-[fuzz testing](https://colin-scott.github.io/blog/2015/10/07/fuzzing-raft-for-fun-and-profit/)
+* [Fuzz testing](https://colin-scott.github.io/blog/2015/10/07/fuzzing-raft-for-fun-and-profit/)
 to ensure correct behavior
 * Add proper error types using the
 [`error` package](https://www.npmjs.com/package/error)
