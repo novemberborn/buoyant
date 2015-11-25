@@ -3,6 +3,6 @@
 node_modules
 coverage
 
-/index.js
-/index.js.map
+/main.js
+/main.js.map
 /lib

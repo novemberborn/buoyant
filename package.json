@@ -17,15 +17,15 @@
   "engines": {
     "node": ">=5.0.0"
   },
-  "main": "index.js",
+  "main": "main.js",
   "files": [
-    "index.js",
-    "index.js.map",
+    "main.js",
+    "main.js.map",
     "lib",
     "src"
   ],
   "scripts": {
-    "clean": "rimraf index.js index.js.map lib",
+    "clean": "rimraf main.js main.js.map lib",
     "prebuild": "npm run clean",
     "build": "babel src --out-dir ./ --source-maps",
     "prepublish": "npm run build",
