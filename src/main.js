@@ -72,8 +72,8 @@ export function createServer ({
     persistState (state) {
       return new Promise(resolve => resolve(persistState(state)))
     },
-    persistEntries (entries) {
-      return new Promise(resolve => resolve(persistEntries(entries)))
+    persistEntries (entries, lastApplied) {
+      return new Promise(resolve => resolve(persistEntries(entries, lastApplied)))
     },
     applyEntry (entry) {
       return new Promise(resolve => resolve(applyEntry(entry)))
