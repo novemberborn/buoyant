@@ -2,8 +2,11 @@
 // and applied to the server's state machine.
 export default class Entry {
   constructor (index, term, value) {
-    if (!Number.isSafeInteger(index)) {
-      throw new TypeError('Index is not a safe integer')
+    if (!Number.isSafeInteger(index) || index < 1) {
+      throw new TypeError("Parameter 'index' must be a safe integer, greater or equal than 1")
+    }
+    if (!Number.isSafeInteger(term) || term < 1) {
+      throw new TypeError("Parameter 'term' must be a safe integer, greater or equal than 1")
     }
 
     Object.defineProperties(this, {

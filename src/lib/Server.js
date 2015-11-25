@@ -68,9 +68,12 @@ export default class Server {
     if (!this._closeInProgress) {
       this._allowJoin = false
 
+      const transport = this._transport
+      this._transport = null
+
       this._closeInProgress = Promise.all([
-        this._transport && new Promise(resolve => resolve(this._transport.destroy())),
-        this._raft.stop()
+        transport && new Promise(resolve => resolve(transport.destroy())),
+        this._raft.close()
       ]).then(() => {})
     }
 
@@ -81,17 +84,22 @@ export default class Server {
   destroy () {
     this._allowJoin = false
 
-    return Promise.all([
-      this._transport && new Promise(resolve => resolve(this._transport.destroy())),
+    const transport = this._transport
+    this._transport = null
+
+    this._closeInProgress = Promise.all([
+      transport && new Promise(resolve => resolve(transport.destroy())),
       this._raft.destroy()
     ]).then(() => {})
+
+    return this._closeInProgress
   }
 
   // Join a cluster.
   join (addresses = []) {
     return new Promise(resolve => {
       addresses = Array.from(addresses, item => {
-        return Address.is(item) ? item : Address.fromUrl(item)
+        return Address.is(item) ? item : new Address(item)
       })
 
       if (!this._allowJoin) {
@@ -113,8 +121,8 @@ export default class Server {
         .then(nonPeerStream => {
           return this._raft.joinInitialCluster({
             addresses,
-            connect: address => {
-              return new Promise(resolve => resolve(this._transport.connect(address)))
+            connect: opts => {
+              return new Promise(resolve => resolve(this._transport.connect(opts)))
             },
             nonPeerStream
           })
@@ -129,8 +137,9 @@ export default class Server {
 
           const rethrow = () => { throw err }
           return new Promise(resolve => {
-            resolve(this._transport.destroy())
+            const transport = this._transport
             this._transport = null
+            resolve(transport.destroy())
           }).then(rethrow, rethrow)
         })
 

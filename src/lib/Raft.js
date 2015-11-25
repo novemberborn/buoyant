@@ -1,12 +1,12 @@
-import NonPeerReceiver from './NonPeerReceiver'
-
 import Candidate from './roles/Candidate'
 import Follower from './roles/Follower'
 import Leader from './roles/Leader'
 
 import Log from './Log'
+import LogEntryApplier from './LogEntryApplier'
 import State from './State'
 
+import NonPeerReceiver from './NonPeerReceiver'
 import Peer from './Peer'
 
 function intInRange (range) {
@@ -34,8 +34,7 @@ export default class Raft {
     this.state = new State(persistState)
     this.log = new Log({
       persistEntries,
-      applyEntry,
-      crashHandler
+      applier: new LogEntryApplier({ applyEntry, crashHandler })
     })
 
     this.crashHandler = crashHandler
@@ -80,7 +79,7 @@ export default class Raft {
       let abort = null
       let aborted = false
       const promise = new Promise((resolve, reject) => {
-        connect(address).then(stream => {
+        connect({ address, readWrite: true }).then(stream => {
           if (!aborted) {
             resolve(new Peer(address, stream))
           }
@@ -133,6 +132,7 @@ export default class Raft {
       convertToCandidate: this.convertToCandidate.bind(this),
       convertToFollower: this.convertToFollower.bind(this)
     })
+    this.currentRole.start()
   }
 
   convertToCandidate () {
@@ -157,6 +157,7 @@ export default class Raft {
       convertToFollower: this.convertToFollower.bind(this),
       becomeLeader: this.becomeLeader.bind(this)
     })
+    this.currentRole.start()
   }
 
   convertToFollower (replayMessage) {
@@ -177,15 +178,15 @@ export default class Raft {
       peers,
       nonPeerReceiver,
       crashHandler,
-      convertToCandidate: this.convertToCandidate.bind(this),
-      // The server can convert to follower state based on an incoming message.
-      // Pass the message along so the follower can "replay" it.
-      replayMessage
+      convertToCandidate: this.convertToCandidate.bind(this)
     })
+    // The server can convert to follower state based on an incoming message.
+    // Pass the message along so the follower can "replay" it.
+    this.currentRole.start(replayMessage)
   }
 
   append (value) {
-    if (!this.currentRole.append) {
+    if (!this.currentRole || !this.currentRole.append) {
       return Promise.reject(new Error('Not leader'))
     }
 

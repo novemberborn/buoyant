@@ -2,22 +2,13 @@
 
 const path = require('path')
 
-const babel = require('babel-core')
-const sourceMapSupport = require('source-map-support')
-
-// Resolve the example location relative to the current working directory.
-const mod = path.resolve('example', process.argv[2])
-
-// Fix up argv so the example thinks it was invoked directly. Don't fix other
-// properties like execArgv.
-process.argv = ['node', mod].concat(process.argv.slice(3))
-
-// Cache source maps for the example modules that were transformed on the fly.
+// Cache source maps for the test modules that were transformed on the fly.
 const transformMaps = Object.create(null)
 
 // Hook up source map support to rewrite stack traces. Use cached source maps
 // but fall back to retrieving them from the pragma in the source file. The
 // latter will work for `npm run build` output.
+const sourceMapSupport = require('source-map-support')
 sourceMapSupport.install({
   environment: 'node',
   handleUncaughtExceptions: false,
@@ -26,25 +17,31 @@ sourceMapSupport.install({
   }
 })
 
-// Only modules in the example dir are transformed. All other modules are
+// Resolve the `!mocha` source to the wrapper module.
+const mochaWrapperSource = path.join(__dirname, 'mocha-wrapper.js')
+function resolveModuleSource (source, filename) {
+  return source === '!mocha' ? mochaWrapperSource : source
+}
+
+const babel = require('babel-core')
+// Only modules in the test dir are transformed. All other modules are
 // assumed to be compatible. This means the examples run with the build code
 // as it's distributed on npm.
-const exampleDir = path.dirname(mod)
+const testDir = path.resolve(__dirname, '..')
 const requirePlain = require.extensions['.js']
 require.extensions['.js'] = function (module, filename) {
-  if (!filename.startsWith(exampleDir + '/')) {
+  if (!filename.startsWith(testDir + '/')) {
     requirePlain(module, filename)
     return
   }
 
   const result = babel.transformFileSync(filename, {
     sourceMap: true,
-    ast: false
+    ast: false,
+    plugins: ['babel-plugin-espower', 'transform-async-to-generator'],
+    resolveModuleSource
   })
 
   transformMaps[filename] = { url: filename, map: result.map }
   module._compile(result.code, filename)
 }
-
-// Now load the example.
-require(mod)

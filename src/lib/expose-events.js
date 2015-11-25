@@ -9,19 +9,19 @@ export default function exposeEvents (target) {
 
   Object.defineProperties(target, {
     on: {
-      value (name, listener) { emitter.on(name, listener); return this },
+      value (event, listener) { emitter.on(event, listener); return this },
       configurable: true,
       enumerable: false,
       writable: true
     },
     once: {
-      value (name, listener) { emitter.once(name, listener); return this },
+      value (event, listener) { emitter.once(event, listener); return this },
       configurable: true,
       enumerable: false,
       writable: true
     },
     removeListener: {
-      value (name, listener) { emitter.removeListener(name, listener); return this },
+      value (event, listener) { emitter.removeListener(event, listener); return this },
       configurable: true,
       enumerable: false,
       writable: true
@@ -55,9 +55,9 @@ class Emitter {
       if (listeners.has(listener)) {
         // fireOnce can only be true if the previous registration was supposed
         // to fire once.
-        this.registry.get(event).set(listener, fireOnce === listeners.get(listener))
+        listeners.set(listener, fireOnce === listeners.get(listener))
       } else {
-        this.registry.get(event).set(listener, fireOnce)
+        listeners.set(listener, fireOnce)
       }
     } else {
       this.registry.set(event, new Map().set(listener, fireOnce))

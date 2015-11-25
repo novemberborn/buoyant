@@ -20,7 +20,7 @@ export function createServer ({
   crashHandler
 }) {
   if (typeof address === 'string') {
-    address = Address.fromUrl(address)
+    address = new Address(address)
   } else if (!Address.is(address)) {
     throw new TypeError("Parameter 'address' must be a string or an Address instance")
   }
@@ -72,8 +72,8 @@ export function createServer ({
     persistState (state) {
       return new Promise(resolve => resolve(persistState(state)))
     },
-    persistEntries (entries) {
-      return new Promise(resolve => resolve(persistEntries(entries)))
+    persistEntries (entries, lastApplied) {
+      return new Promise(resolve => resolve(persistEntries(entries, lastApplied)))
     },
     applyEntry (entry) {
       return new Promise(resolve => resolve(applyEntry(entry)))

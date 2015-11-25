@@ -1,5 +1,5 @@
 import {
-  AppendEntries,
+  AppendEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote
 } from '../symbols'
 
@@ -43,17 +43,22 @@ export default class Candidate {
       peers,
       nonPeerReceiver,
       scheduler: this.scheduler,
-      handleMessage: this.handleMessage.bind(this),
+      handleMessage: (peer, message) => this.handleMessage(peer, message),
       crashHandler
     })
+  }
 
+  start () {
     this.requestVote()
+
+    // Start last so it doesn't preempt requesting votes.
+    this.inputConsumer.start()
   }
 
   destroy () {
     this.destroyed = true
     clearTimeout(this.timer)
-    this.inputConsumer.halt()
+    this.inputConsumer.stop()
     this.scheduler.abort()
   }
 
@@ -128,8 +133,20 @@ export default class Candidate {
 
   handleAppendEntries (peer, term, message) {
     // Convert to follower if the message is from a leader in the current term.
+    // Reject the entries if they're part of an older term. The peer has already
+    // been deposed as leader but it just doesn't know it yet. Let it know by
+    // sending the current term in the reply.
     if (term === this.state.currentTerm) {
       this.convertToFollower([peer, message])
+    } else {
+      // handleAppendEntries() is never called directly, only via
+      // handleMessage() which already checks if the term is newer. Thus a
+      // simple else branch can be used, which also helps with code coverage
+      // calculations.
+      peer.send({
+        type: RejectEntries,
+        term: this.state.currentTerm
+      })
     }
   }
 }

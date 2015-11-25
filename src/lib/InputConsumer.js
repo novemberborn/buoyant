@@ -11,12 +11,8 @@
 //
 // If a message is received from `nonPeerReceiver` a peer is created before it
 // and the message are passed to `handleMessage()`.
-//
-// An initial peer and message may be provided as the first argument (as an
-// array).
 export default class InputConsumer {
   constructor ({
-    initial = null,
     peers,
     nonPeerReceiver,
     scheduler,
@@ -30,20 +26,23 @@ export default class InputConsumer {
     this.crashHandler = crashHandler
 
     this.buffers = [nonPeerReceiver.messages].concat(peers.map(peer => peer.messages))
-    this.halted = false
-
-    this._crash = this.crash.bind(this)
-
-    const promise = initial && scheduler.asap(null, handleMessage, ...initial)
-    ;(promise || Promise.resolve()).then(() => this.consumeNext()).catch(this._crash)
+    this.stopped = false
   }
 
-  halt () {
-    this.halted = true
+  start () {
+    try {
+      this.consumeNext()
+    } catch (err) {
+      this.crash(err)
+    }
+  }
+
+  stop () {
+    this.stopped = true
   }
 
   crash (err) {
-    this.halt()
+    this.stop()
     this.crashHandler(err)
   }
 
@@ -51,8 +50,8 @@ export default class InputConsumer {
     // Consume as many messages from each peer as synchronously possible, then
     // wait for more.
     //
-    // Note that synchronous message handling may halt consumption as a
-    // side-effect. Each time a message is handled `this.halted` must be
+    // Note that synchronous message handling may stop consumption as a
+    // side-effect. Each time a message is handled `this.stopped` must be
     // checked.
 
     let resumeIndex = 0
@@ -60,7 +59,7 @@ export default class InputConsumer {
 
     let index = startIndex
     let repeat = true
-    while (!this.halted && repeat && !pending) {
+    while (!this.stopped && repeat && !pending) {
       repeat = false
 
       do {
@@ -82,29 +81,29 @@ export default class InputConsumer {
             resumeIndex = index
           }
         }
-      } while (!this.halted && !pending && index !== startIndex)
+      } while (!this.stopped && !pending && index !== startIndex)
     }
 
-    // Consume as many non-peer messages as synchronously possible.
-    while (!this.halted && !pending && this.nonPeerReceiver.messages.canTake()) {
+    // Consume the next non-peer message, if available.
+    if (!this.stopped && !pending && this.nonPeerReceiver.messages.canTake()) {
       pending = this.scheduler.asap(null, () => this.handleNonPeerMessage(...this.nonPeerReceiver.messages.take()))
     }
 
-    if (!this.halted) {
+    if (!this.stopped) {
       // Wait for new messages to become available.
       if (!pending) {
         pending = Promise.race(this.buffers.map(messages => messages.await()))
       }
 
-      pending.then(() => this.consumeNext(resumeIndex)).catch(this._crash)
+      pending.then(() => this.consumeNext(resumeIndex)).catch(err => this.crash(err))
     }
   }
 
   handleNonPeerMessage (address, message) {
     return this.nonPeerReceiver.createPeer(address).then(peer => {
-      if (this.halted) return
+      if (this.stopped) return
 
-      this.handleMessage(peer, message)
+      return this.handleMessage(peer, message)
     })
   }
 }

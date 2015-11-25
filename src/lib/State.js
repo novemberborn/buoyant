@@ -10,12 +10,12 @@ export default class State {
       return persist({
         currentTerm: this.currentTerm,
         votedFor: this.votedFor
-      })
+      }).then(() => undefined)
     }
   }
 
   replace ({ currentTerm, votedFor }) {
-    if (!Number.isInteger(currentTerm) || currentTerm < 0 || !Number.isSafeInteger(currentTerm)) {
+    if (!Number.isSafeInteger(currentTerm) || currentTerm < 0) {
       throw new TypeError('Cannot replace state: current term must be a safe, non-negative integer')
     }
 
@@ -34,12 +34,20 @@ export default class State {
   }
 
   setTerm (term) {
+    if (!Number.isSafeInteger(term) || term < 1) {
+      throw new TypeError('Cannot set term: must be a safe integer, greater than or equal to 1')
+    }
+
     this.currentTerm = term
     this.votedFor = null
     return this.persist()
   }
 
   setTermAndVote (term, votedFor) {
+    if (!Number.isSafeInteger(term) || term < 1) {
+      throw new TypeError('Cannot set term: must be a safe integer, greater than or equal to 1')
+    }
+
     this.currentTerm = term
     this.votedFor = votedFor
     return this.persist()

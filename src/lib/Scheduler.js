@@ -13,7 +13,7 @@ export default class Scheduler {
     this.queue = []
   }
 
-  asap (handleAbort = null, fn, ...args) {
+  asap (handleAbort = null, fn) {
     if (this.aborted) {
       if (handleAbort) {
         handleAbort()
@@ -24,10 +24,10 @@ export default class Scheduler {
     }
 
     if (this.busy) {
-      return new Promise(resolve => this.queue.push([handleAbort, resolve, fn, args]))
+      return new Promise(resolve => this.queue.push([handleAbort, resolve, fn]))
     }
 
-    return this.run(fn, args)
+    return this.run(fn)
   }
 
   abort () {
@@ -49,10 +49,10 @@ export default class Scheduler {
     return new Promise(() => {})
   }
 
-  run (fn, args) {
+  run (fn) {
     let promise = null
     try {
-      promise = fn.call(this.context, ...args)
+      promise = fn()
     } catch (err) {
       return this.crash(err)
     }
@@ -63,19 +63,19 @@ export default class Scheduler {
         return
       }
 
-      const [, resolve, fn, args] = this.queue.shift()
-      resolve(this.run(fn, args))
+      const [, resolve, fn] = this.queue.shift()
+      resolve(this.run(fn))
     }
 
-    if (promise) {
-      this.busy = true
-      // Note that the operations can't return results, just that they completed
-      // successfully.
-      const result = promise.then(() => undefined, err => this.crash(err))
-      promise.then(next)
-      return result
+    if (!promise) {
+      return next()
     }
 
-    next()
+    this.busy = true
+    // Note that the operations can't return results, just that they completed
+    // successfully.
+    const result = promise.then(() => undefined, err => this.crash(err))
+    promise.then(next)
+    return result
   }
 }
