@@ -18,8 +18,5 @@ mv coverage/coverage-final.json coverage/coverage.json
 # Rewrite the coverage file taking the Babel source maps into account.
 remap-istanbul -i coverage/coverage.json -o coverage/coverage.json
 
-# Generate an lcov.info file and an HTML report.
-istanbul report lcov
-
-# Output a text report.
-istanbul report text
+# Generate an lcov.info file and an HTML report, and output a text report.
+istanbul report lcov text
