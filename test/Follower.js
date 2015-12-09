@@ -3,7 +3,7 @@ import { resolve } from 'path'
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { install as installClock } from 'lolex'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import {
   setupConstructors,
@@ -31,9 +31,9 @@ describe('roles/Follower', () => {
     const state = ctx.state = stubState()
     const log = ctx.log = stubLog()
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = sinon.stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = sinon.stub()
-    const convertToCandidate = ctx.convertToCandidate = sinon.stub()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const crashHandler = ctx.crashHandler = stub()
+    const convertToCandidate = ctx.convertToCandidate = stub()
 
     ctx.follower = new ctx.Follower({ electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate })
   })
@@ -47,42 +47,44 @@ describe('roles/Follower', () => {
 
   describe('#start (replayMessage)', () => {
     it('starts the election timer', ctx => {
-      const spy = sinon.spy(ctx.follower, 'maybeStartElection')
+      spy(ctx.follower, 'maybeStartElection')
       ctx.follower.start()
 
       ctx.clock.tick(ctx.electionTimeout)
-      sinon.assert.calledOnce(spy)
+      assert(ctx.follower.maybeStartElection.calledOnce)
 
       ctx.clock.tick(ctx.electionTimeout)
-      sinon.assert.calledTwice(spy)
+      assert(ctx.follower.maybeStartElection.calledTwice)
     })
 
     context('there’s a message to be replayed', () => {
       beforeEach(ctx => ctx.message = Symbol())
 
       it('handles the message', ctx => {
-        const spy = sinon.spy(ctx.follower, 'handleMessage')
+        spy(ctx.follower, 'handleMessage')
         ctx.follower.start([ctx.peer, ctx.message])
 
-        sinon.assert.calledOnce(spy)
-        sinon.assert.calledWithExactly(spy, ctx.peer, ctx.message)
+        assert(ctx.follower.handleMessage.calledOnce)
+        const { args } = ctx.follower.handleMessage.firstCall
+        assert(args[0] === ctx.peer)
+        assert(args[1] === ctx.message)
       })
 
       it('uses the scheduler', ctx => {
         // Only checks whether the scheduler is used. Not a perfect test since
         // it doesn't confirm that the operation is actually gated by the
         // scheduler.
-        const spy = sinon.spy(ctx.follower.scheduler, 'asap')
+        spy(ctx.follower.scheduler, 'asap')
         ctx.follower.start([ctx.peer, ctx.message])
-        sinon.assert.calledOnce(spy)
+        assert(ctx.follower.scheduler.asap.calledOnce)
       })
 
       it('replays the message before starting the input consumer', ctx => {
-        const handleMessage = sinon.spy(ctx.follower, 'handleMessage')
-        const start = sinon.spy(ctx.follower.inputConsumer, 'start')
+        const handleMessage = spy(ctx.follower, 'handleMessage')
+        const start = spy(ctx.follower.inputConsumer, 'start')
         ctx.follower.start([ctx.peer, ctx.message])
 
-        sinon.assert.callOrder(handleMessage, start)
+        assert(handleMessage.calledBefore(start))
       })
     })
 
@@ -91,12 +93,12 @@ describe('roles/Follower', () => {
 
   describe('#destroy ()', () => {
     it('clears the election timer', ctx => {
-      const spy = sinon.spy(ctx.follower, 'maybeStartElection') // spy on the method called by the timer
+      spy(ctx.follower, 'maybeStartElection') // spy on the method called by the timer
 
       ctx.follower.start()
       ctx.follower.destroy() // should prevent the timer from triggering
       ctx.clock.tick(ctx.electionTimeout) // timer should fire now, if not cleared
-      sinon.assert.notCalled(spy) // should not be called again
+      assert(ctx.follower.maybeStartElection) // should not be called agai.notCalledn
     })
 
     testInputConsumerDestruction(ctx => ctx.follower)
@@ -111,30 +113,30 @@ describe('roles/Follower', () => {
       // Only checks whether the scheduler is used. Not a perfect test since
       // it doesn't confirm that the operation is actually gated by the
       // scheduler.
-      const spy = sinon.spy(ctx.follower.scheduler, 'asap')
+      spy(ctx.follower.scheduler, 'asap')
       ctx.follower.maybeStartElection()
-      sinon.assert.calledOnce(spy)
+      assert(ctx.follower.scheduler.asap.calledOnce)
     })
 
     context('previously invoked but not yet run', () => {
       it('does not schedule again', ctx => {
-        const asap = sinon.stub(ctx.follower.scheduler, 'asap')
+        const asap = stub(ctx.follower.scheduler, 'asap')
         ctx.follower.maybeStartElection()
-        sinon.assert.calledOnce(asap)
+        assert(asap.calledOnce)
 
         ctx.follower.maybeStartElection()
-        sinon.assert.calledOnce(asap)
+        assert(asap.calledOnce)
       })
     })
 
     context('previously invoked and run', () => {
       it('schedules again', ctx => {
-        const asap = sinon.stub(ctx.follower.scheduler, 'asap')
+        const asap = stub(ctx.follower.scheduler, 'asap')
         ctx.follower.maybeStartElection()
-        asap.getCall(0).args[1]()
+        asap.firstCall.yield()
 
         ctx.follower.maybeStartElection()
-        sinon.assert.calledTwice(asap)
+        assert(asap.calledTwice)
       })
     })
   })
@@ -157,8 +159,8 @@ describe('roles/Follower', () => {
       it('sends a DenyVote message to the candidate', ctx => {
         ctx.follower.handleRequestVote(ctx.peer, 1, { term: 1 })
 
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [denied] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [denied] } = ctx.peer.send.firstCall
         assert.deepStrictEqual(denied, { type: DenyVote, term: 2 })
       })
 
@@ -169,8 +171,8 @@ describe('roles/Follower', () => {
         // for the outdated term.
         await ctx.follower.handleRequestVote(ctx.peer, 1, { term: 1, lastLogIndex: 3, lastLogTerm: 3 })
         // Verify the vote was indeed denied and no other messages were sent.
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [{ type }] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [{ type }] } = ctx.peer.send.firstCall
         assert(type === DenyVote)
       })
     })
@@ -178,7 +180,7 @@ describe('roles/Follower', () => {
     const doesNotGrantVote = ({ term, lastLogIndex, lastLogTerm }) => {
       it('does not grant its vote to the candidate', async ctx => {
         await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
-        sinon.assert.notCalled(ctx.peer.send)
+        assert(ctx.peer.send.notCalled)
       })
     }
 
@@ -186,8 +188,9 @@ describe('roles/Follower', () => {
       context('the candidate’s term is ahead', () => {
         it('updates its term to that of the candidate', async ctx => {
           await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
-          sinon.assert.calledOnce(ctx.state.setTerm)
-          sinon.assert.calledWithExactly(ctx.state.setTerm, term)
+          assert(ctx.state.setTerm.calledOnce)
+          const { args: [value] } = ctx.state.setTerm.firstCall
+          assert(value === term)
         })
 
         it('returns a promise for when the term is updated', async ctx => {
@@ -208,8 +211,10 @@ describe('roles/Follower', () => {
       it('sets its term to that of the candidate, and votes', async ctx => {
         await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
 
-        sinon.assert.calledOnce(ctx.state.setTermAndVote)
-        sinon.assert.calledWithExactly(ctx.state.setTermAndVote, term, ctx.peer.id)
+        assert(ctx.state.setTermAndVote.calledOnce)
+        const { args: [value, id] } = ctx.state.setTermAndVote.firstCall
+        assert(value === term)
+        assert(id === ctx.peer.id)
       })
 
       context('the follower was destroyed while persisting the state', () => {
@@ -222,7 +227,7 @@ describe('roles/Follower', () => {
           persisted()
 
           await Promise.resolve()
-          sinon.assert.notCalled(ctx.peer.send)
+          assert(ctx.peer.send.notCalled)
         })
       })
 
@@ -231,8 +236,8 @@ describe('roles/Follower', () => {
           ctx.state._currentTerm.returns(term)
           await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
 
-          sinon.assert.calledOnce(ctx.peer.send)
-          const { args: [granted] } = ctx.peer.send.getCall(0)
+          assert(ctx.peer.send.calledOnce)
+          const { args: [granted] } = ctx.peer.send.firstCall
           assert.deepStrictEqual(granted, { type: GrantVote, term })
         })
       })
@@ -244,7 +249,7 @@ describe('roles/Follower', () => {
           await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
 
           ctx.clock.tick(ctx.electionTimeout)
-          sinon.assert.notCalled(ctx.follower.convertToCandidate)
+          assert(ctx.follower.convertToCandidate.notCalled)
         })
 
         context('another election timeout passes', () => {
@@ -252,10 +257,10 @@ describe('roles/Follower', () => {
             await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
 
             ctx.clock.tick(ctx.electionTimeout)
-            sinon.assert.notCalled(ctx.follower.convertToCandidate)
+            assert(ctx.follower.convertToCandidate.notCalled)
 
             ctx.clock.tick(ctx.electionTimeout)
-            sinon.assert.calledOnce(ctx.follower.convertToCandidate)
+            assert(ctx.follower.convertToCandidate.calledOnce)
           })
         })
       })
@@ -306,8 +311,8 @@ describe('roles/Follower', () => {
       it('sends a RejectEntries message to the peer', ctx => {
         ctx.follower.handleAppendEntries(ctx.peer, 1, { term: 1 })
 
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [rejected] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [rejected] } = ctx.peer.send.firstCall
         assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2 })
       })
 
@@ -316,8 +321,8 @@ describe('roles/Follower', () => {
         // not for the outdated term.
         await ctx.follower.handleAppendEntries(ctx.peer, 1, { term: 1, prevLogIndex: 0, prevLogTerm: 0, entries: [] })
         // Verify the entries were indeed rejected and no other messages were sent.
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [{ type }] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [{ type }] } = ctx.peer.send.firstCall
         assert(type === RejectEntries)
       })
     })
@@ -328,8 +333,8 @@ describe('roles/Follower', () => {
           ctx.log.getEntry.returns(undefined)
           await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
 
-          sinon.assert.calledOnce(ctx.peer.send)
-          const { args: [rejected] } = ctx.peer.send.getCall(0)
+          assert(ctx.peer.send.calledOnce)
+          const { args: [rejected] } = ctx.peer.send.firstCall
           assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
         })
       })
@@ -339,8 +344,8 @@ describe('roles/Follower', () => {
           ctx.log.getEntry.returns(new Entry(1, 2, Symbol()))
           await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
 
-          sinon.assert.calledOnce(ctx.peer.send)
-          const { args: [rejected] } = ctx.peer.send.getCall(0)
+          assert(ctx.peer.send.calledOnce)
+          const { args: [rejected] } = ctx.peer.send.firstCall
           assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
         })
       })
@@ -351,8 +356,9 @@ describe('roles/Follower', () => {
           const entries = Symbol()
           ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries, leaderCommit: 0 })
 
-          sinon.assert.calledOnce(ctx.log.mergeEntries)
-          sinon.assert.calledWithExactly(ctx.log.mergeEntries, entries)
+          assert(ctx.log.mergeEntries.calledOnce)
+          const { args: [merged] } = ctx.log.mergeEntries.firstCall
+          assert(merged === entries)
         })
       })
     })
@@ -362,8 +368,9 @@ describe('roles/Follower', () => {
         const entries = Symbol()
         ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries, leaderCommit: 0 })
 
-        sinon.assert.calledOnce(ctx.log.mergeEntries)
-        sinon.assert.calledWithExactly(ctx.log.mergeEntries, entries)
+        assert(ctx.log.mergeEntries.calledOnce)
+        const { args: [merged] } = ctx.log.mergeEntries.firstCall
+        assert(merged === entries)
       })
     })
 
@@ -375,7 +382,7 @@ describe('roles/Follower', () => {
           await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 
           ctx.clock.tick(ctx.electionTimeout)
-          sinon.assert.notCalled(ctx.follower.convertToCandidate)
+          assert(ctx.follower.convertToCandidate.notCalled)
         })
 
         context('another election timeout passes', () => {
@@ -383,10 +390,10 @@ describe('roles/Follower', () => {
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 
             ctx.clock.tick(ctx.electionTimeout)
-            sinon.assert.notCalled(ctx.follower.convertToCandidate)
+            assert(ctx.follower.convertToCandidate.notCalled)
 
             ctx.clock.tick(ctx.electionTimeout)
-            sinon.assert.calledOnce(ctx.follower.convertToCandidate)
+            assert(ctx.follower.convertToCandidate.calledOnce)
           })
         })
       })
@@ -395,8 +402,9 @@ describe('roles/Follower', () => {
         it('updates its term to that of the leader', ctx => {
           ctx.follower.handleAppendEntries(ctx.peer, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 
-          sinon.assert.calledOnce(ctx.state.setTerm)
-          sinon.assert.calledWithExactly(ctx.state.setTerm, 3)
+          assert(ctx.state.setTerm.calledOnce)
+          const { args: [term] } = ctx.state.setTerm.firstCall
+          assert(term === 3)
         })
 
         context('the follower was destroyed while persisting the entries or state', () => {
@@ -409,7 +417,7 @@ describe('roles/Follower', () => {
             persisted()
 
             await new Promise(resolve => setImmediate(resolve))
-            sinon.assert.notCalled(ctx.peer.send)
+            assert(ctx.peer.send.notCalled)
           })
         })
 
@@ -419,8 +427,8 @@ describe('roles/Follower', () => {
             ctx.log._lastIndex.returns(1)
             await ctx.follower.handleAppendEntries(ctx.peer, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 
-            sinon.assert.calledOnce(ctx.peer.send)
-            const { args: [accepted] } = ctx.peer.send.getCall(0)
+            assert(ctx.peer.send.calledOnce)
+            const { args: [accepted] } = ctx.peer.send.firstCall
             assert.deepStrictEqual(accepted, { type: AcceptEntries, term: 3, lastLogIndex: 1 })
           })
         })
@@ -429,7 +437,7 @@ describe('roles/Follower', () => {
       context('the leader’s term is even with that of the follower', () => {
         it('does not update its term', ctx => {
           ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-          sinon.assert.notCalled(ctx.state.setTerm)
+          assert(ctx.state.setTerm.notCalled)
         })
 
         context('the follower was destroyed while persisting the entries', () => {
@@ -442,7 +450,7 @@ describe('roles/Follower', () => {
             persisted()
 
             await new Promise(resolve => setImmediate(resolve))
-            sinon.assert.notCalled(ctx.peer.send)
+            assert(ctx.peer.send.notCalled)
           })
         })
 
@@ -451,8 +459,8 @@ describe('roles/Follower', () => {
             ctx.log._lastIndex.returns(1)
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 
-            sinon.assert.calledOnce(ctx.peer.send)
-            const { args: [accepted] } = ctx.peer.send.getCall(0)
+            assert(ctx.peer.send.calledOnce)
+            const { args: [accepted] } = ctx.peer.send.firstCall
             assert.deepStrictEqual(accepted, { type: AcceptEntries, term: 2, lastLogIndex: 1 })
           })
         })
@@ -462,33 +470,34 @@ describe('roles/Follower', () => {
         context('is ahead', () => {
           it('commits the log up to the leader’s index', ctx => {
             ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
-            sinon.assert.calledOnce(ctx.log.commit)
-            sinon.assert.calledWithExactly(ctx.log.commit, 1)
+            assert(ctx.log.commit.calledOnce)
+            const { args: [commit] } = ctx.log.commit.firstCall
+            assert(commit === 1)
           })
 
           it('stores the leader’s commit index', async ctx => {
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
-            sinon.assert.calledOnce(ctx.log.commit)
+            assert(ctx.log.commit.calledOnce)
 
             // No second commit if the index is the same
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
-            sinon.assert.calledOnce(ctx.log.commit)
+            assert(ctx.log.commit.calledOnce)
 
             // Another commit if the index is higher again
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 2 })
-            sinon.assert.calledTwice(ctx.log.commit)
+            assert(ctx.log.commit.calledTwice)
           })
         })
 
         context('is behind', () => {
           beforeEach(async ctx => {
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 10 })
-            ctx.log.commit.reset()
+            ctx.log.commit.resetHistory()
           })
 
           it('does not commit the log', async ctx => {
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 5 })
-            sinon.assert.notCalled(ctx.log.commit)
+            assert(ctx.log.commit.notCalled)
           })
         })
       })

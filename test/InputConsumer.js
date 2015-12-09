@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 import { stubMessages, stubPeer } from './support/stub-helpers'
 
@@ -14,28 +14,35 @@ describe('InputConsumer', () => {
     let run
     ctx.scheduler.asap.onCall(0).returns(new Promise(resolve => {
       run = () => {
-        resolve(ctx.scheduler.asap.firstCall.args[1]())
+        const { args: [, fn] } = ctx.scheduler.asap.firstCall
+        resolve(fn())
         return new Promise(resolve => setImmediate(resolve))
       }
     }))
     return run
   }
 
+  const assertCrashed = (ctx, err) => {
+    assert(ctx.handlers.crash.calledOnce)
+    const { args: [reason] } = ctx.handlers.crash.firstCall
+    assert(reason === err)
+  }
+
   beforeEach(ctx => {
-    const scheduler = ctx.scheduler = sinon.stub({ asap () {} })
+    const scheduler = ctx.scheduler = stub({ asap () {} })
     ctx.scheduler.asap.returns(new Promise(() => {}))
 
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
 
-    const nonPeerReceiver = ctx.nonPeerReceiver = sinon.stub({
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({
       messages: stubMessages(),
       createPeer () {}
     })
     ctx.nonPeerReceiver.createPeer.returns(new Promise(() => {}))
 
     ctx.handlers = {
-      message: sinon.stub().returns(new Promise(() => {})),
-      crash: sinon.stub()
+      message: stub().returns(new Promise(() => {})),
+      crash: stub()
     }
 
     ctx.consumer = new InputConsumer({
@@ -51,9 +58,9 @@ describe('InputConsumer', () => {
 
   describe('#start ()', () => {
     it('starts consuming messages', ctx => {
-      sinon.assert.notCalled(ctx.peer.messages.canTake)
+      assert(ctx.peer.messages.canTake.notCalled)
       ctx.consumer.start()
-      sinon.assert.calledOnce(ctx.peer.messages.canTake)
+      assert(ctx.peer.messages.canTake.calledOnce)
     })
   })
 
@@ -61,7 +68,8 @@ describe('InputConsumer', () => {
     it('consults each peer in order', ctx => {
       ctx.consumer.start()
       const canTakes = ctx.peers.map(peer => peer.messages.canTake)
-      sinon.assert.callOrder(...canTakes)
+      assert(canTakes[0].calledBefore(canTakes[1]))
+      assert(canTakes[1].calledBefore(canTakes[2]))
     })
 
     context('a message can be taken', () => {
@@ -69,16 +77,18 @@ describe('InputConsumer', () => {
 
       it('schedules handling the message', ctx => {
         ctx.consumer.start()
-        sinon.assert.calledOnce(ctx.scheduler.asap)
-        sinon.assert.calledWithExactly(ctx.scheduler.asap, null, sinon.match.func)
+        assert(ctx.scheduler.asap.calledOnce)
+        const { args: [handleAbort, fn] } = ctx.scheduler.asap.firstCall
+        assert(handleAbort === null)
+        assert(typeof fn === 'function')
       })
 
       it('only takes the message when it can be handled', ctx => {
         ctx.consumer.start()
-        sinon.assert.notCalled(ctx.peers[1].messages.take)
+        assert(ctx.peers[1].messages.take.notCalled)
 
-        ctx.scheduler.asap.firstCall.args[1]()
-        sinon.assert.calledOnce(ctx.peers[1].messages.take)
+        ctx.scheduler.asap.yield()
+        assert(ctx.peers[1].messages.take.calledOnce)
       })
 
       it('passes the peer and the message to handleMessage()', ctx => {
@@ -87,15 +97,17 @@ describe('InputConsumer', () => {
         ctx.scheduler.asap.onCall(0).yields()
 
         ctx.consumer.start()
-        sinon.assert.calledOnce(ctx.handlers.message)
-        sinon.assert.calledWithExactly(ctx.handlers.message, ctx.peers[1], message)
+        assert(ctx.handlers.message.calledOnce)
+        const { args: [fromPeer, received] } = ctx.handlers.message.firstCall
+        assert(fromPeer === ctx.peers[1])
+        assert(received === message)
       })
 
       context('the scheduler returns a promise', () => {
         it('does not consult the next peer', ctx => {
           ctx.scheduler.asap.returns(new Promise(() => {}))
           ctx.consumer.start()
-          sinon.assert.notCalled(ctx.peers[2].messages.canTake)
+          assert(ctx.peers[2].messages.canTake.notCalled)
         })
 
         context('the promise is fulfilled', () => {
@@ -104,16 +116,16 @@ describe('InputConsumer', () => {
             ctx.scheduler.asap.onCall(0).returns(new Promise(resolve => fulfil = resolve))
 
             ctx.consumer.start()
-            ctx.peers[0].messages.canTake.reset()
-            ctx.peers[1].messages.canTake.reset()
+            ctx.peers[0].messages.canTake.resetHistory()
+            ctx.peers[1].messages.canTake.resetHistory()
             ctx.peers[2].messages.canTake.returns(true)
 
             fulfil()
             await Promise.resolve()
 
-            sinon.assert.notCalled(ctx.peers[0].messages.canTake)
-            sinon.assert.notCalled(ctx.peers[1].messages.canTake)
-            sinon.assert.calledOnce(ctx.peers[2].messages.canTake)
+            assert(ctx.peers[0].messages.canTake.notCalled)
+            assert(ctx.peers[1].messages.canTake.notCalled)
+            assert(ctx.peers[2].messages.canTake.calledOnce)
           })
         })
 
@@ -124,8 +136,7 @@ describe('InputConsumer', () => {
             ctx.consumer.start()
 
             await new Promise(resolve => setImmediate(resolve))
-            sinon.assert.calledOnce(ctx.handlers.crash)
-            sinon.assert.calledWithExactly(ctx.handlers.crash, err)
+            assertCrashed(ctx, err)
           })
         })
       })
@@ -142,14 +153,11 @@ describe('InputConsumer', () => {
           }, []).filter(call => call)
 
           assert(calls.length === 6)
-
-          // Sinon can only compare call order for the spy, not for individual
-          // calls. Get the ID for each call and compare those to a sorted
-          // list. If all peers were consulted in order then the callIds
-          // should be ascending.
-          const actualCallIds = calls.map(ctx => ctx.callId)
-          const sortedCallIds = actualCallIds.slice().sort((a, b) => a.callId - b.callId)
-          assert.deepEqual(actualCallIds, sortedCallIds)
+          assert(calls[0].calledBefore(calls[1]))
+          assert(calls[1].calledBefore(calls[2]))
+          assert(calls[2].calledBefore(calls[3]))
+          assert(calls[3].calledBefore(calls[4]))
+          assert(calls[4].calledBefore(calls[5]))
         })
 
         context('handleMessage() fails', () => {
@@ -161,8 +169,7 @@ describe('InputConsumer', () => {
             ctx.scheduler.asap.yields()
 
             ctx.consumer.start()
-            sinon.assert.calledOnce(ctx.handlers.crash)
-            sinon.assert.calledWithExactly(ctx.handlers.crash, err)
+            assertCrashed(ctx, err)
           })
         })
       })
@@ -171,7 +178,7 @@ describe('InputConsumer', () => {
     context('no message can be taken', () => {
       it('consults the nonPeerReceiver', ctx => {
         ctx.consumer.start()
-        sinon.assert.calledOnce(ctx.nonPeerReceiver.messages.canTake)
+        assert(ctx.nonPeerReceiver.messages.canTake.calledOnce)
       })
 
       context('a non-peer message can be taken', () => {
@@ -182,16 +189,18 @@ describe('InputConsumer', () => {
 
         it('schedules handling the message', ctx => {
           ctx.consumer.start()
-          sinon.assert.calledOnce(ctx.scheduler.asap)
-          sinon.assert.calledWithExactly(ctx.scheduler.asap, null, sinon.match.func)
+          assert(ctx.scheduler.asap.calledOnce)
+          const { args: [handleAbort, fn] } = ctx.scheduler.asap.firstCall
+          assert(handleAbort === null)
+          assert(typeof fn === 'function')
         })
 
         it('only takes the message when it can be handled', ctx => {
           ctx.consumer.start()
-          sinon.assert.notCalled(ctx.nonPeerReceiver.messages.take)
+          assert(ctx.nonPeerReceiver.messages.take.notCalled)
 
-          ctx.scheduler.asap.firstCall.args[1]()
-          sinon.assert.calledOnce(ctx.nonPeerReceiver.messages.take)
+          ctx.scheduler.asap.firstCall.yield()
+          assert(ctx.nonPeerReceiver.messages.take.calledOnce)
         })
 
         it('creates a peer', ctx => {
@@ -200,8 +209,9 @@ describe('InputConsumer', () => {
           ctx.scheduler.asap.onCall(0).yields()
           ctx.consumer.start()
 
-          sinon.assert.calledOnce(ctx.nonPeerReceiver.createPeer)
-          sinon.assert.calledWithExactly(ctx.nonPeerReceiver.createPeer, address)
+          assert(ctx.nonPeerReceiver.createPeer.calledOnce)
+          const { args: [peerAddress] } = ctx.nonPeerReceiver.createPeer.firstCall
+          assert(peerAddress === address)
         })
 
         context('creating the peer succeeds', () => {
@@ -214,8 +224,10 @@ describe('InputConsumer', () => {
             ctx.consumer.start()
 
             await Promise.resolve()
-            sinon.assert.calledOnce(ctx.handlers.message)
-            sinon.assert.calledWithExactly(ctx.handlers.message, peer, message)
+            assert(ctx.handlers.message.calledOnce)
+            const { args: [fromPeer, received] } = ctx.handlers.message.firstCall
+            assert(fromPeer === peer)
+            assert(received === message)
           })
 
           context('handleMessage() returns a promise', () => {
@@ -226,8 +238,8 @@ describe('InputConsumer', () => {
                 ctx.nonPeerReceiver.createPeer.returns(Promise.resolve())
                 ctx.consumer.start()
 
-                const result = await ctx.scheduler.asap.firstCall.args[1]()
-                assert(result === state)
+                const { args: [, fn] } = ctx.scheduler.asap.firstCall
+                assert(await fn() === state)
               })
             })
           })
@@ -242,8 +254,7 @@ describe('InputConsumer', () => {
               ctx.consumer.start()
               await runAsap()
 
-              sinon.assert.calledOnce(ctx.handlers.crash)
-              sinon.assert.calledWithExactly(ctx.handlers.crash, err)
+              assertCrashed(ctx, err)
             })
           })
         })
@@ -257,8 +268,7 @@ describe('InputConsumer', () => {
             ctx.consumer.start()
             await runAsap()
 
-            sinon.assert.calledOnce(ctx.handlers.crash)
-            sinon.assert.calledWithExactly(ctx.handlers.crash, err)
+            assertCrashed(ctx, err)
           })
         })
       })
@@ -268,9 +278,9 @@ describe('InputConsumer', () => {
           ctx.consumer.start()
 
           for (const { messages } of ctx.peers) {
-            sinon.assert.calledOnce(messages.await)
+            assert(messages.await.calledOnce)
           }
-          sinon.assert.calledOnce(ctx.nonPeerReceiver.messages.await)
+          assert(ctx.nonPeerReceiver.messages.await.calledOnce)
         })
 
         context('a message becomes available', () => {
@@ -282,9 +292,9 @@ describe('InputConsumer', () => {
             // Reset first round of canTake() calls.
             const canTakes = ctx.peers.map(peer => peer.messages.canTake).concat(ctx.nonPeerReceiver.messages.canTake)
             for (const stub of canTakes) {
-              stub.reset()
+              stub.resetHistory()
             }
-            sinon.assert.notCalled(canTakes[0])
+            assert(canTakes[0].notCalled)
 
             // Make a message available for the second peer.
             available()
@@ -292,7 +302,8 @@ describe('InputConsumer', () => {
 
             // Each canTake() should be invoked, in order (so first peer goes
             // first).
-            sinon.assert.callOrder(...canTakes)
+            assert(canTakes[0].calledBefore(canTakes[1]))
+            assert(canTakes[1].calledBefore(canTakes[2]))
           })
         })
 
@@ -304,8 +315,7 @@ describe('InputConsumer', () => {
             ctx.consumer.start()
             await new Promise(resolve => setImmediate(resolve))
 
-            sinon.assert.calledOnce(ctx.handlers.crash)
-            sinon.assert.calledWithExactly(ctx.handlers.crash, err)
+            assertCrashed(ctx, err)
           })
         })
       })
@@ -317,14 +327,14 @@ describe('InputConsumer', () => {
 
     const noTakes = (ctx, canTakes = ctx.canTakes) => {
       for (const canTake of canTakes) {
-        sinon.assert.notCalled(canTake)
+        assert(canTake.notCalled)
       }
     }
     const resetTakes = ctx => {
       for (const canTake of ctx.canTakes) {
-        canTake.reset()
+        canTake.resetHistory()
       }
-      sinon.assert.notCalled(ctx.canTakes[0])
+      assert(ctx.canTakes[0].notCalled)
     }
 
     // handleMessage() could stop the consumer directly, or while it's doing
@@ -376,7 +386,7 @@ describe('InputConsumer', () => {
 
             ctx.consumer.start()
 
-            sinon.assert.calledOnce(ctx.canTakes[0])
+            assert(ctx.canTakes[0].calledOnce)
             noTakes(ctx, ctx.canTakes.slice(1))
           })
         })
@@ -392,13 +402,13 @@ describe('InputConsumer', () => {
         ctx.nonPeerReceiver.createPeer.returns(new Promise(resolve => create = resolve))
 
         ctx.consumer.start()
-        sinon.assert.calledOnce(ctx.nonPeerReceiver.createPeer)
+        assert(ctx.nonPeerReceiver.createPeer.calledOnce)
         ctx.consumer.stop()
 
         create()
         await Promise.resolve()
 
-        sinon.assert.notCalled(ctx.handlers.message)
+        assert(ctx.handlers.message.notCalled)
       })
     })
   })

@@ -1,22 +1,22 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
 import proxyquire from 'proxyquire'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
 describe('Raft', () => {
   before(ctx => {
-    ctx.Candidate = sinon.spy(() => sinon.stub({ destroy () {}, start () {} }))
-    ctx.Follower = sinon.spy(() => sinon.stub({ destroy () {}, start () {} }))
-    ctx.Leader = sinon.spy(() => sinon.stub({ destroy () {}, start () {}, append () {} }))
+    ctx.Candidate = spy(() => stub({ destroy () {}, start () {} }))
+    ctx.Follower = spy(() => stub({ destroy () {}, start () {} }))
+    ctx.Leader = spy(() => stub({ destroy () {}, start () {}, append () {} }))
 
-    ctx.Log = sinon.spy(() => sinon.stub({ replace () {}, close () {}, destroy () {} }))
-    ctx.LogEntryApplier = sinon.spy(() => sinon.stub())
-    ctx.State = sinon.spy(() => sinon.stub({ replace () {} }))
+    ctx.Log = spy(() => stub({ replace () {}, close () {}, destroy () {} }))
+    ctx.LogEntryApplier = spy(() => stub())
+    ctx.State = spy(() => stub({ replace () {} }))
 
-    ctx.NonPeerReceiver = sinon.spy(() => sinon.stub())
-    ctx.Peer = sinon.spy(() => sinon.stub())
+    ctx.NonPeerReceiver = spy(() => stub())
+    ctx.Peer = spy(() => stub())
 
     ctx.Raft = proxyquire.noCallThru()('../lib/Raft', {
       './roles/Candidate': function (...args) { return ctx.Candidate(...args) },
@@ -51,12 +51,12 @@ describe('Raft', () => {
     const persistEntries = ctx.persistEntries = Symbol()
     const applyEntry = ctx.applyEntry = Symbol()
     const crashHandler = ctx.crashHandler = Symbol()
-    const emitEvent = ctx.emitEvent = sinon.spy()
+    const emitEvent = ctx.emitEvent = spy()
 
     ctx.raft = new ctx.Raft({ id, electionTimeoutWindow, heartbeatInterval, persistState, persistEntries, applyEntry, crashHandler, emitEvent })
-    sinon.spy(ctx.raft, 'becomeLeader')
-    sinon.spy(ctx.raft, 'convertToCandidate')
-    sinon.spy(ctx.raft, 'convertToFollower')
+    spy(ctx.raft, 'becomeLeader')
+    spy(ctx.raft, 'convertToCandidate')
+    spy(ctx.raft, 'convertToFollower')
   })
 
   const destroyCurrentRole = method => {
@@ -64,7 +64,8 @@ describe('Raft', () => {
       it('destroys the role', ctx => {
         ctx.raft.becomeLeader()
         ctx.raft[method]()
-        sinon.assert.calledOnce(ctx.Leader.getCall(0).returnValue.destroy)
+        const { returnValue: role } = ctx.Leader.firstCall
+        assert(role.destroy.calledOnce)
       })
     })
   }
@@ -72,38 +73,40 @@ describe('Raft', () => {
   const emitsEvent = (method, event) => {
     it(`emits a ${event} event`, ctx => {
       ctx.raft[method]()
-      sinon.assert.calledOnce(ctx.emitEvent)
-      sinon.assert.calledWithExactly(ctx.emitEvent, event)
+      assert(ctx.emitEvent.calledOnce)
+      const { args: [emitted] } = ctx.emitEvent.firstCall
+      assert(emitted === event)
     })
   }
 
   const startsRole = (method, role) => {
     it(`starts the ${role}`, ctx => {
       ctx.raft[method]()
-      sinon.assert.calledOnce(ctx.raft.currentRole.start)
+      assert(ctx.raft.currentRole.start.calledOnce)
     })
   }
 
   describe('constructor ({ id, electionTimeoutWindow, heartbeatInterval, persistState, persistEntries, applyEntry, crashHandler, emitEvent })', () => {
     it('instantiates the state', ctx => {
-      sinon.assert.calledOnce(ctx.State)
-      sinon.assert.calledWithExactly(ctx.State, ctx.persistState)
-      assert(ctx.raft.state === ctx.State.getCall(0).returnValue)
+      assert(ctx.State.calledOnce)
+      const { args: [persistState], returnValue: state } = ctx.State.firstCall
+      assert(persistState === ctx.persistState)
+      assert(state === ctx.raft.state)
     })
 
     it('instantiates the log entry applier', ctx => {
-      sinon.assert.calledOnce(ctx.LogEntryApplier)
-      const { args: [{ applyEntry, crashHandler }] } = ctx.LogEntryApplier.getCall(0)
+      assert(ctx.LogEntryApplier.calledOnce)
+      const { args: [{ applyEntry, crashHandler }] } = ctx.LogEntryApplier.firstCall
       assert(applyEntry === ctx.applyEntry)
       assert(crashHandler === ctx.crashHandler)
     })
 
     it('instantiates the log', ctx => {
-      sinon.assert.calledOnce(ctx.Log)
-      const { args: [{ persistEntries, applier }] } = ctx.Log.getCall(0)
+      assert(ctx.Log.calledOnce)
+      const { args: [{ persistEntries, applier }], returnValue: log } = ctx.Log.firstCall
       assert(persistEntries === ctx.persistEntries)
-      assert(applier === ctx.LogEntryApplier.getCall(0).returnValue)
-      assert(ctx.raft.log === ctx.Log.getCall(0).returnValue)
+      assert(applier === ctx.LogEntryApplier.firstCall.returnValue)
+      assert(log === ctx.raft.log)
     })
   })
 
@@ -111,8 +114,9 @@ describe('Raft', () => {
     it('replaces the state', ctx => {
       const state = Symbol()
       ctx.raft.replaceState(state)
-      sinon.assert.calledOnce(ctx.raft.state.replace)
-      sinon.assert.calledWithExactly(ctx.raft.state.replace, state)
+      assert(ctx.raft.state.replace.calledOnce)
+      const { args: [replaced] } = ctx.raft.state.replace.firstCall
+      assert(replaced === state)
     })
   })
 
@@ -120,8 +124,10 @@ describe('Raft', () => {
     it('replaces the log', ctx => {
       const [entries, lastApplied] = [Symbol(), Symbol()]
       ctx.raft.replaceLog(entries, lastApplied)
-      sinon.assert.calledOnce(ctx.raft.log.replace)
-      sinon.assert.calledWithExactly(ctx.raft.log.replace, entries, lastApplied)
+      assert(ctx.raft.log.replace.calledOnce)
+      const { args: [replacedEntries, replacedApplied] } = ctx.raft.log.replace.firstCall
+      assert(replacedEntries === entries)
+      assert(replacedApplied === lastApplied)
     })
   })
 
@@ -141,22 +147,17 @@ describe('Raft', () => {
     beforeEach(ctx => {
       ctx.addresses = [Symbol(), Symbol()]
       ctx.streams = new Map().set(ctx.addresses[0], Symbol()).set(ctx.addresses[1], Symbol())
-      ctx.connect = sinon.spy(({ address }) => Promise.resolve(ctx.streams.get(address)))
+      ctx.connect = spy(({ address }) => Promise.resolve(ctx.streams.get(address)))
       ctx.nonPeerStream = Symbol()
     })
 
     it('uses connect() to connect to each address', ctx => {
       const { addresses, connect, nonPeerStream } = ctx
       ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream })
-      sinon.assert.calledTwice(ctx.connect)
-      {
-        const { args: [{ address, readWrite }] } = ctx.connect.getCall(0)
-        assert(address === ctx.addresses[0])
-        assert(readWrite === true)
-      }
-      {
-        const { args: [{ address, readWrite }] } = ctx.connect.getCall(1)
-        assert(address === ctx.addresses[1])
+      assert(ctx.connect.calledTwice)
+      for (let n = 0; n < ctx.connect.callCount; n++) {
+        const { args: [{ address, readWrite }] } = ctx.connect.getCall(n)
+        assert(address === ctx.addresses[n])
         assert(readWrite === true)
       }
     })
@@ -166,28 +167,35 @@ describe('Raft', () => {
         const { addresses, connect, nonPeerStream } = ctx
         await ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream })
 
-        sinon.assert.calledTwice(ctx.Peer)
-        for (const address of addresses) {
-          sinon.assert.calledWithExactly(ctx.Peer, address, ctx.streams.get(address))
-        }
+        assert(ctx.Peer.calledTwice)
+        assert(ctx.raft.peers.length === 2)
 
-        assert.deepStrictEqual(ctx.raft.peers, ctx.Peer.returnValues)
+        const pending = new Set(addresses)
+        for (let n = 0; n < ctx.Peer.callCount; n++) {
+          const { args: [address, stream], returnValue: peer } = ctx.Peer.getCall(n)
+          assert(pending.delete(address))
+          assert(stream === ctx.streams.get(address))
+          assert(ctx.raft.peers[n] === peer)
+        }
+        assert(pending.size === 0)
       })
 
       it('instantiates a non-peer receiver for the nonPeerStream', async ctx => {
         const { addresses, connect, nonPeerStream } = ctx
         await ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream })
 
-        sinon.assert.calledOnce(ctx.NonPeerReceiver)
-        sinon.assert.calledWithExactly(ctx.NonPeerReceiver, nonPeerStream, connect)
-        assert(ctx.raft.nonPeerReceiver === ctx.NonPeerReceiver.getCall(0).returnValue)
+        assert(ctx.NonPeerReceiver.calledOnce)
+        const { args: [stream, connectFn], returnValue: receiver } = ctx.NonPeerReceiver.firstCall
+        assert(stream === nonPeerStream)
+        assert(connectFn === connect)
+        assert(ctx.raft.nonPeerReceiver === receiver)
       })
 
       it('converts to follower', async ctx => {
         const { addresses, connect, nonPeerStream } = ctx
         await ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream })
 
-        sinon.assert.calledOnce(ctx.raft.convertToFollower)
+        assert(ctx.raft.convertToFollower.calledOnce)
       })
 
       describe('the returned promise', () => {
@@ -199,7 +207,7 @@ describe('Raft', () => {
     })
 
     context('an address fails to connect', () => {
-      beforeEach(ctx => ctx.connect = sinon.stub())
+      beforeEach(ctx => ctx.connect = stub())
 
       context('another address is not yet connected', () => {
         context('that address connects', () => {
@@ -214,7 +222,7 @@ describe('Raft', () => {
             connectOther()
             await Promise.resolve()
 
-            sinon.assert.notCalled(ctx.Peer)
+            assert(ctx.Peer.notCalled)
           })
         })
       })
@@ -240,10 +248,10 @@ describe('Raft', () => {
       ctx.raft.nonPeerReceiver = Symbol()
       ctx.raft.becomeLeader()
 
-      sinon.assert.calledOnce(ctx.Leader)
-      assert(ctx.raft.currentRole === ctx.Leader.getCall(0).returnValue)
+      assert(ctx.Leader.calledOnce)
+      assert(ctx.raft.currentRole === ctx.Leader.firstCall.returnValue)
 
-      const { args: [{ heartbeatInterval, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate, convertToFollower }] } = ctx.Leader.getCall(0)
+      const { args: [{ heartbeatInterval, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate, convertToFollower }] } = ctx.Leader.firstCall
       assert(heartbeatInterval === ctx.heartbeatInterval)
       assert(state === ctx.raft.state)
       assert(log === ctx.raft.log)
@@ -252,14 +260,15 @@ describe('Raft', () => {
       assert(crashHandler === ctx.raft.crashHandler)
 
       convertToCandidate()
-      sinon.assert.calledOnce(ctx.raft.convertToCandidate)
-      sinon.assert.calledOn(ctx.raft.convertToCandidate, ctx.raft)
+      assert(ctx.raft.convertToCandidate.calledOnce)
+      assert(ctx.raft.convertToCandidate.calledOn(ctx.raft))
 
       const replayMessage = Symbol()
       convertToFollower(replayMessage)
-      sinon.assert.calledOnce(ctx.raft.convertToFollower)
-      sinon.assert.calledOn(ctx.raft.convertToFollower, ctx.raft)
-      sinon.assert.calledWithExactly(ctx.raft.convertToFollower, replayMessage)
+      assert(ctx.raft.convertToFollower.calledOnce)
+      assert(ctx.raft.convertToFollower.calledOn(ctx.raft))
+      const { args: [messageToReplay] } = ctx.raft.convertToFollower.firstCall
+      assert(messageToReplay === replayMessage)
     })
 
     startsRole('becomeLeader', 'leader')
@@ -274,10 +283,10 @@ describe('Raft', () => {
       ctx.raft.nonPeerReceiver = Symbol()
       ctx.raft.convertToCandidate()
 
-      sinon.assert.calledOnce(ctx.Candidate)
-      assert(ctx.raft.currentRole === ctx.Candidate.getCall(0).returnValue)
+      assert(ctx.Candidate.calledOnce)
+      assert(ctx.raft.currentRole === ctx.Candidate.firstCall.returnValue)
 
-      const { args: [{ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader }] } = ctx.Candidate.getCall(0)
+      const { args: [{ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader }] } = ctx.Candidate.firstCall
       assert(ourId === ctx.id)
       assert(electionTimeout >= ctx.electionTimeoutWindow[0] && electionTimeout < ctx.electionTimeoutWindow[1])
       assert(state === ctx.raft.state)
@@ -287,14 +296,15 @@ describe('Raft', () => {
       assert(crashHandler === ctx.raft.crashHandler)
 
       becomeLeader()
-      sinon.assert.calledOnce(ctx.raft.becomeLeader)
-      sinon.assert.calledOn(ctx.raft.becomeLeader, ctx.raft)
+      assert(ctx.raft.becomeLeader.calledOnce)
+      assert(ctx.raft.becomeLeader.calledOn(ctx.raft))
 
       const replayMessage = Symbol()
       convertToFollower(replayMessage)
-      sinon.assert.calledOnce(ctx.raft.convertToFollower)
-      sinon.assert.calledOn(ctx.raft.convertToFollower, ctx.raft)
-      sinon.assert.calledWithExactly(ctx.raft.convertToFollower, replayMessage)
+      assert(ctx.raft.convertToFollower.calledOnce)
+      assert(ctx.raft.convertToFollower.calledOn(ctx.raft))
+      const { args: [messageToReplay] } = ctx.raft.convertToFollower.firstCall
+      assert(messageToReplay === replayMessage)
     })
 
     startsRole('convertToCandidate', 'candidate')
@@ -309,10 +319,10 @@ describe('Raft', () => {
       ctx.raft.nonPeerReceiver = Symbol()
       ctx.raft.convertToFollower()
 
-      sinon.assert.calledOnce(ctx.Follower)
-      assert(ctx.raft.currentRole === ctx.Follower.getCall(0).returnValue)
+      assert(ctx.Follower.calledOnce)
+      assert(ctx.raft.currentRole === ctx.Follower.firstCall.returnValue)
 
-      const { args: [{ electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate }] } = ctx.Follower.getCall(0)
+      const { args: [{ electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate }] } = ctx.Follower.firstCall
       assert(electionTimeout >= ctx.electionTimeoutWindow[0] && electionTimeout < ctx.electionTimeoutWindow[1])
       assert(state === ctx.raft.state)
       assert(log === ctx.raft.log)
@@ -321,8 +331,8 @@ describe('Raft', () => {
       assert(crashHandler === ctx.raft.crashHandler)
 
       convertToCandidate()
-      sinon.assert.calledOnce(ctx.raft.convertToCandidate)
-      sinon.assert.calledOn(ctx.raft.convertToCandidate, ctx.raft)
+      assert(ctx.raft.convertToCandidate.calledOnce)
+      assert(ctx.raft.convertToCandidate.calledOn(ctx.raft))
     })
 
     startsRole('convertToFollower', 'follower')
@@ -330,8 +340,9 @@ describe('Raft', () => {
     it('passes on the replayMessage', ctx => {
       const replayMessage = Symbol()
       ctx.raft.convertToFollower(replayMessage)
-      sinon.assert.calledOnce(ctx.raft.currentRole.start)
-      sinon.assert.calledWithExactly(ctx.raft.currentRole.start, replayMessage)
+      assert(ctx.raft.currentRole.start.calledOnce)
+      const { args: [messageToReplay] } = ctx.raft.currentRole.start.firstCall
+      assert(messageToReplay === replayMessage)
     })
   })
 
@@ -357,7 +368,8 @@ describe('Raft', () => {
 
         const value = Symbol()
         assert(ctx.raft.append(value) === result)
-        sinon.assert.calledWithExactly(ctx.raft.currentRole.append, value)
+        const { args: [appended] } = ctx.raft.currentRole.append.firstCall
+        assert(appended === value)
       })
     })
   })

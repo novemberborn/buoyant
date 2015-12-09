@@ -3,7 +3,7 @@ import { resolve } from 'path'
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { install as installClock } from 'lolex'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import {
   setupConstructors,
@@ -31,10 +31,10 @@ describe('roles/Candidate', () => {
     const state = ctx.state = stubState()
     const log = ctx.log = stubLog()
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = sinon.stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = sinon.stub()
-    const convertToFollower = ctx.convertToFollower = sinon.stub()
-    const becomeLeader = ctx.becomeLeader = sinon.stub()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const crashHandler = ctx.crashHandler = stub()
+    const convertToFollower = ctx.convertToFollower = stub()
+    const becomeLeader = ctx.becomeLeader = stub()
 
     ctx.candidate = new ctx.Candidate({ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader })
   })
@@ -48,9 +48,9 @@ describe('roles/Candidate', () => {
 
   describe('#start ()', () => {
     it('requests a vote', ctx => {
-      const spy = sinon.spy(ctx.candidate, 'requestVote')
+      spy(ctx.candidate, 'requestVote')
       ctx.candidate.start()
-      sinon.assert.calledOnce(spy)
+      assert(ctx.candidate.requestVote.calledOnce)
     })
 
     testInputConsumerStart(ctx => ctx.candidate)
@@ -58,15 +58,15 @@ describe('roles/Candidate', () => {
 
   describe('#destroy ()', () => {
     it('clears the election timer', async ctx => {
-      const spy = sinon.spy(ctx.candidate, 'requestVote') // spy on the method called by the timer
+      spy(ctx.candidate, 'requestVote') // spy on the method called by the timer
 
       ctx.candidate.start()
-      sinon.assert.calledOnce(spy) // should be called after starting
+      assert(ctx.candidate.requestVote.calledOnce) // should be called after starting
       await Promise.resolve() // wait for the timer to be started
 
       ctx.candidate.destroy() // should prevent the timer from triggering
       ctx.clock.tick(ctx.electionTimeout) // timer should fire now, if not cleared
-      sinon.assert.calledOnce(spy) // should not be called again
+      assert(ctx.candidate.requestVote.calledOnce) // should not be called again
     })
 
     testInputConsumerDestruction(ctx => ctx.candidate)
@@ -77,15 +77,16 @@ describe('roles/Candidate', () => {
     it('is gated by the scheduler', ctx => {
       // Only checks whether the scheduler is used. Not a perfect test since it
       // doesn't confirm that the operation is actually gated by the scheduler.
-      const spy = sinon.spy(ctx.candidate.scheduler, 'asap')
+      spy(ctx.candidate.scheduler, 'asap')
       ctx.candidate.requestVote()
-      sinon.assert.calledOnce(spy)
+      assert(ctx.candidate.scheduler.asap.calledOnce)
     })
 
     it('advances the term, voting for itself', ctx => {
       ctx.candidate.requestVote()
-      sinon.assert.calledOnce(ctx.state.nextTerm)
-      sinon.assert.calledWithExactly(ctx.state.nextTerm, ctx.ourId)
+      assert(ctx.state.nextTerm.calledOnce)
+      const { args: [id] } = ctx.state.nextTerm.firstCall
+      assert(id === ctx.ourId)
     })
 
     context('the candidate was destroyed while persisting the state', () => {
@@ -98,7 +99,7 @@ describe('roles/Candidate', () => {
         persisted()
 
         await Promise.resolve()
-        sinon.assert.notCalled(ctx.peer.send)
+        assert(ctx.peer.send.notCalled)
       })
 
       it('does not set the election timer', async ctx => {
@@ -110,9 +111,9 @@ describe('roles/Candidate', () => {
         persisted()
 
         await Promise.resolve()
-        const spy = sinon.spy(ctx.candidate, 'requestVote')
+        spy(ctx.candidate, 'requestVote')
         ctx.clock.tick(ctx.electionTimeout)
-        sinon.assert.notCalled(spy)
+        assert(ctx.candidate.requestVote.notCalled)
       })
     })
 
@@ -128,7 +129,7 @@ describe('roles/Candidate', () => {
         await Promise.resolve()
 
         for (const { send } of ctx.peers) {
-          const { args: [message] } = send.getCall(0)
+          const { args: [message] } = send.firstCall
           assert.deepStrictEqual(message, { type: RequestVote, term, lastLogIndex, lastLogTerm })
         }
       })
@@ -138,9 +139,9 @@ describe('roles/Candidate', () => {
           ctx.candidate.requestVote()
           await Promise.resolve()
 
-          const spy = sinon.spy(ctx.candidate, 'requestVote')
+          spy(ctx.candidate, 'requestVote')
           ctx.clock.tick(ctx.electionTimeout)
-          sinon.assert.calledOnce(spy)
+          assert(ctx.candidate.requestVote.calledOnce)
         })
       })
     })
@@ -162,8 +163,8 @@ describe('roles/Candidate', () => {
         ctx.state._currentTerm.returns(2)
         ctx.candidate.handleRequestVote(ctx.peer, 1)
 
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [denied] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [denied] } = ctx.peer.send.firstCall
         assert.deepStrictEqual(denied, { type: DenyVote, term: 2 })
       })
     })
@@ -173,7 +174,7 @@ describe('roles/Candidate', () => {
         ctx.state._currentTerm.returns(2)
         ctx.candidate.handleRequestVote(ctx.peer, 2)
 
-        sinon.assert.notCalled(ctx.peer.send)
+        assert(ctx.peer.send.notCalled)
       })
     })
   })
@@ -192,31 +193,31 @@ describe('roles/Candidate', () => {
     context('the term is not the current term', () => {
       it('does not count the vote', ctx => {
         ctx.candidate.handleGrantVote(ctx.peer, 1) // outdated term
-        sinon.assert.notCalled(ctx.becomeLeader)
+        assert(ctx.becomeLeader.notCalled)
 
         // The next proper vote should be counted, a majority reached, and the
         // candidate becomes leader.
         ctx.candidate.handleGrantVote(ctx.peer, 2)
-        sinon.assert.calledOnce(ctx.becomeLeader)
+        assert(ctx.becomeLeader.calledOnce)
       })
     })
 
     context('a vote was already received from the peer', () => {
       it('does not count the vote', ctx => {
         ctx.candidate.handleGrantVote(ctx.peers[1], 2) // already voted
-        sinon.assert.notCalled(ctx.becomeLeader)
+        assert(ctx.becomeLeader.notCalled)
 
         // The next proper vote should be counted, a majority reached, and the
         // candidate becomes leader.
         ctx.candidate.handleGrantVote(ctx.peer, 2)
-        sinon.assert.calledOnce(ctx.becomeLeader)
+        assert(ctx.becomeLeader.calledOnce)
       })
     })
 
     context('at least half of the peers have voted for the candidate', () => {
       it('becomes leader', ctx => {
         ctx.candidate.handleGrantVote(ctx.peer, 2)
-        sinon.assert.calledOnce(ctx.becomeLeader)
+        assert(ctx.becomeLeader.calledOnce)
       })
     })
 
@@ -233,18 +234,18 @@ describe('roles/Candidate', () => {
 
       it('again requires votes from at least half the peers', ctx => {
         ctx.candidate.handleGrantVote(ctx.peer, 2)
-        sinon.assert.notCalled(ctx.becomeLeader)
+        assert(ctx.becomeLeader.notCalled)
         ctx.candidate.handleGrantVote(ctx.peers[2], 2)
-        sinon.assert.calledOnce(ctx.becomeLeader)
+        assert(ctx.becomeLeader.calledOnce)
       })
 
       describe('a peer that voted in a previous election', () => {
         it('can vote again', ctx => {
           ctx.candidate.handleGrantVote(ctx.peer, 2)
-          sinon.assert.notCalled(ctx.becomeLeader)
+          assert(ctx.becomeLeader.notCalled)
           // peers[1] voted in the previous election.
           ctx.candidate.handleGrantVote(ctx.peers[1], 2)
-          sinon.assert.calledOnce(ctx.becomeLeader)
+          assert(ctx.becomeLeader.calledOnce)
         })
       })
     })
@@ -257,8 +258,10 @@ describe('roles/Candidate', () => {
         const message = {}
         ctx.candidate.handleAppendEntries(ctx.peer, 1, message)
 
-        sinon.assert.calledOnce(ctx.convertToFollower)
-        sinon.assert.calledWithMatch(ctx.convertToFollower, [sinon.match.same(ctx.peer), sinon.match.same(message)])
+        assert(ctx.convertToFollower.calledOnce)
+        const { args: [replayMessage] } = ctx.convertToFollower.firstCall
+        assert(replayMessage[0] === ctx.peer)
+        assert(replayMessage[1] === message)
       })
     })
 
@@ -267,8 +270,8 @@ describe('roles/Candidate', () => {
         ctx.state._currentTerm.returns(2)
         ctx.candidate.handleAppendEntries(ctx.peer, 1, {})
 
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [rejected] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [rejected] } = ctx.peer.send.firstCall
         assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2 })
       })
     })

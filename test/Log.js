@@ -1,14 +1,14 @@
 import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 import Entry from '../lib/Entry'
 import Log from '../lib/Log'
 
 describe('Log', () => {
   beforeEach(ctx => {
-    const persistEntries = ctx.persistEntries = sinon.stub().returns(Promise.resolve())
-    const applier = ctx.applier = sinon.stub({
+    const persistEntries = ctx.persistEntries = stub().returns(Promise.resolve())
+    const applier = ctx.applier = stub({
       _lastQueued () {},
       get lastQueued () { return this._lastQueued() },
       finish () {},
@@ -56,7 +56,7 @@ describe('Log', () => {
   describe('#destroy ()', () => {
     it('invokes destroy() on the applier', ctx => {
       ctx.log.destroy()
-      sinon.assert.calledOnce(ctx.applier.destroy)
+      assert(ctx.applier.destroy.calledOnce)
     })
 
     it('returns undefined', ctx => {
@@ -70,15 +70,17 @@ describe('Log', () => {
     it('invokes reset() on the applier, with the lastApplied value', ctx => {
       const lastApplied = Symbol()
       ctx.log.replace([], lastApplied)
-      sinon.assert.calledOnce(ctx.applier.reset)
-      sinon.assert.calledWithExactly(ctx.applier.reset, lastApplied)
+      assert(ctx.applier.reset.calledOnce)
+      const { args: [to] } = ctx.applier.reset.firstCall
+      assert(to === lastApplied)
     })
 
     context('no lastApplied value was provided', () => {
       it('invokes reset() on the applier, with the default lastApplied value of 0', ctx => {
         ctx.log.replace([])
-        sinon.assert.calledOnce(ctx.applier.reset)
-        sinon.assert.calledWithExactly(ctx.applier.reset, 0)
+        assert(ctx.applier.reset.calledOnce)
+        const { args: [to] } = ctx.applier.reset.firstCall
+        assert(to === 0)
       })
     })
 
@@ -207,8 +209,8 @@ describe('Log', () => {
       const value = Symbol()
       ctx.log.appendValue(1, value)
 
-      sinon.assert.calledOnce(ctx.persistEntries)
-      const { args: [[entry]] } = ctx.persistEntries.getCall(0)
+      assert(ctx.persistEntries.calledOnce)
+      const { args: [[entry]] } = ctx.persistEntries.firstCall
       assert(entry.value === value)
     })
 
@@ -216,7 +218,7 @@ describe('Log', () => {
       it('is 1 higher than that of the last entry in the log', async ctx => {
         const last = (await seedEntries(ctx)).pop()
         ctx.log.appendValue(1, Symbol())
-        const { args: [[entry]] } = ctx.persistEntries.getCall(0)
+        const { args: [[entry]] } = ctx.persistEntries.firstCall
 
         assert(entry.index === last.index + 1)
       })
@@ -225,7 +227,7 @@ describe('Log', () => {
     context('the persisted entry’s term', () => {
       it('is the currentTerm', ctx => {
         ctx.log.appendValue(2, Symbol())
-        const { args: [[entry]] } = ctx.persistEntries.getCall(0)
+        const { args: [[entry]] } = ctx.persistEntries.firstCall
 
         assert(entry.term === 2)
       })
@@ -258,7 +260,7 @@ describe('Log', () => {
         const p = ctx.log.appendValue(1, Symbol())
         assert(ctx.log.getEntry(1) === undefined)
 
-        const { args: [[entry]] } = ctx.persistEntries.getCall(0)
+        const { args: [[entry]] } = ctx.persistEntries.firstCall
         ctx.finishPersist()
 
         await p
@@ -269,7 +271,7 @@ describe('Log', () => {
         const p = ctx.log.appendValue(1, Symbol())
         assert(ctx.log.lastIndex === 0)
 
-        const { args: [[entry]] } = ctx.persistEntries.getCall(0)
+        const { args: [[entry]] } = ctx.persistEntries.firstCall
         ctx.finishPersist()
         assert(await p === entry)
       })
@@ -281,7 +283,7 @@ describe('Log', () => {
       const entries = makeEntries(1, 1, 3)
       ctx.log.mergeEntries(entries)
 
-      const { args: [persisting] } = ctx.persistEntries.getCall(0)
+      const { args: [persisting] } = ctx.persistEntries.firstCall
       assert(persisting.length === 3)
       assert(persisting[0] === entries[0])
       assert(persisting[1] === entries[1])
@@ -294,7 +296,7 @@ describe('Log', () => {
         const extra = new Entry(4, 1, Symbol())
         ctx.log.mergeEntries(existing.slice(1).concat(extra))
 
-        const { args: [persisting] } = ctx.persistEntries.getCall(0)
+        const { args: [persisting] } = ctx.persistEntries.firstCall
         assert(persisting.length === 1)
         assert(persisting[0] === extra)
       })
@@ -304,7 +306,7 @@ describe('Log', () => {
       it('returns a fulfilled promise, without persisting', async ctx => {
         const existing = await seedEntries(ctx)
         await ctx.log.mergeEntries(existing)
-        sinon.assert.notCalled(ctx.persistEntries)
+        assert(ctx.persistEntries.notCalled)
       })
     })
 
@@ -373,8 +375,10 @@ describe('Log', () => {
       const entry = await ctx.log.appendValue(1, Symbol())
       ctx.log.commit(entry.index)
 
-      sinon.assert.calledOnce(ctx.applier.enqueue)
-      sinon.assert.calledWithExactly(ctx.applier.enqueue, entry, sinon.match.func)
+      assert(ctx.applier.enqueue.calledOnce)
+      const { args: [enqueued, resolve] } = ctx.applier.enqueue.firstCall
+      assert(enqueued === entry)
+      assert(typeof resolve === 'function')
     })
 
     context('there are earlier uncommitted entries', () => {
@@ -384,7 +388,7 @@ describe('Log', () => {
         ctx.applier._lastQueued.returns(1)
         ctx.log.commit(latest.index)
 
-        sinon.assert.calledThrice(ctx.applier.enqueue)
+        assert(ctx.applier.enqueue.calledThrice)
         for (let n = 0; n < 3; n++) {
           const { args: [entry, resolve] } = ctx.applier.enqueue.getCall(n)
           if (n === 0) {
@@ -409,7 +413,7 @@ describe('Log', () => {
         const entry = await ctx.log.appendValue(1, Symbol())
         const p = ctx.log.commit(entry.index)
 
-        const { args: [, resolve] } = ctx.applier.enqueue.getCall(0)
+        const { args: [, resolve] } = ctx.applier.enqueue.firstCall
         const result = Symbol()
         resolve(result)
         assert(await p === result)

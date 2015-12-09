@@ -3,7 +3,7 @@ import { resolve } from 'path'
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { install as installClock } from 'lolex'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import {
   setupConstructors,
@@ -34,10 +34,10 @@ describe('roles/Leader', () => {
     const state = ctx.state = stubState()
     const log = ctx.log = stubLog()
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = sinon.stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = sinon.stub()
-    const convertToCandidate = ctx.convertToCandidate = sinon.stub()
-    const convertToFollower = ctx.convertToFollower = sinon.stub()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const crashHandler = ctx.crashHandler = stub()
+    const convertToCandidate = ctx.convertToCandidate = stub()
+    const convertToFollower = ctx.convertToFollower = stub()
 
     // Prime the log so nextIndex from each peer is initially divergent from its
     // matchIndex.
@@ -76,10 +76,10 @@ describe('roles/Leader', () => {
     // The appendValue() behavior will ensure the internal leader state is
     // in the correct order. The scheduler's behavior is unnecessary so yield
     // immediately.
-    sinon.stub(ctx.leader.scheduler, 'asap').callsArg(1)
+    stub(ctx.leader.scheduler, 'asap').callsArg(1)
 
     // Stub correct commit() behavior.
-    ctx.log.commit = sinon.spy(index => {
+    ctx.log.commit = spy(index => {
       const appended = ctx.appendedValues.find(({ index: entryIndex }) => entryIndex === index)
       return appended ? Promise.resolve(appended.value) : Promise.reject(new Error(`Can't find appended value for index ${index}`))
     })
@@ -104,7 +104,7 @@ describe('roles/Leader', () => {
   }
 
   const wasHeartbeat = function (call, { prevLogIndex: expectedPrevLogIndex, leaderCommit: expectedLeaderCommit }) {
-    const { type, term, prevLogIndex, prevLogTerm, leaderCommit, entries } = call.args[0]
+    const { args: [{ type, term, prevLogIndex, prevLogTerm, leaderCommit, entries }] } = call
     assert(type === AppendEntries)
     assert(term === 2)
     assert(prevLogIndex === expectedPrevLogIndex)
@@ -114,7 +114,7 @@ describe('roles/Leader', () => {
   }
 
   const wasEntries = function (call, { prevLogIndex: expectedPrevLogIndex, leaderCommit: expectedLeaderCommit, entryIndexes }) {
-    const { type, term, prevLogIndex, prevLogTerm, leaderCommit, entries } = call.args[0]
+    const { args: [{ type, term, prevLogIndex, prevLogTerm, leaderCommit, entries }] } = call
     assert(type === AppendEntries)
     assert(term === 2)
     assert(prevLogIndex === expectedPrevLogIndex)
@@ -130,22 +130,23 @@ describe('roles/Leader', () => {
 
   describe('#start ()', () => {
     it('starts the heartbeat timer', ctx => {
-      const spy = sinon.spy(ctx.leader, 'sendHeartbeat')
+      spy(ctx.leader, 'sendHeartbeat')
       ctx.leader.start()
 
       ctx.clock.tick(ctx.heartbeatInterval)
-      sinon.assert.calledOnce(spy)
+      assert(ctx.leader.sendHeartbeat.calledOnce)
 
       ctx.clock.tick(ctx.heartbeatInterval)
-      sinon.assert.calledTwice(spy)
+      assert(ctx.leader.sendHeartbeat.calledTwice)
     })
 
     it('appends a Noop entry', ctx => {
-      const spy = sinon.spy(ctx.leader, 'append')
+      spy(ctx.leader, 'append')
       ctx.leader.start()
 
-      sinon.assert.calledOnce(spy)
-      sinon.assert.calledWithExactly(spy, Noop)
+      assert(ctx.leader.append.calledOnce)
+      const { args: [value] } = ctx.leader.append.firstCall
+      assert(value === Noop)
     })
 
     testInputConsumerStart(ctx => ctx.leader)
@@ -153,12 +154,12 @@ describe('roles/Leader', () => {
 
   describe('#destroy ()', () => {
     it('clears the heartbeat timer', ctx => {
-      const spy = sinon.spy(ctx.leader, 'sendHeartbeat') // spy on the method called by the timer
+      spy(ctx.leader, 'sendHeartbeat') // spy on the method called by the timer
 
       ctx.leader.start()
       ctx.leader.destroy() // should prevent the timer from triggering
       ctx.clock.tick(ctx.heartbeatInterval) // timer should fire now, if not cleared
-      sinon.assert.notCalled(spy) // should not be called again
+      assert(ctx.leader.sendHeartbeat) // should not be called agai.notCalledn
     })
 
     testInputConsumerDestruction(ctx => ctx.leader)
@@ -172,15 +173,15 @@ describe('roles/Leader', () => {
       ctx.leader.sendHeartbeat()
 
       for (const peer of ctx.peers) {
-        sinon.assert.calledOnce(peer.send)
-        wasHeartbeat(peer.send.getCall(0), { prevLogIndex: 2, leaderCommit: 0 })
+        assert(peer.send.calledOnce)
+        wasHeartbeat(peer.send.firstCall, { prevLogIndex: 2, leaderCommit: 0 })
       }
     })
 
     it('forgoes the scheduler', ctx => {
-      const spy = sinon.spy(ctx.leader.scheduler, 'asap')
+      spy(ctx.leader.scheduler, 'asap')
       ctx.leader.sendHeartbeat()
-      sinon.assert.notCalled(spy)
+      assert(ctx.leader.scheduler.asap.notCalled)
     })
   })
 
@@ -199,16 +200,16 @@ describe('roles/Leader', () => {
       it('sends a DenyVote message to the candidate', ctx => {
         ctx.leader.handleRequestVote(ctx.peer, 1, { term: 1 })
 
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [denied] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [denied] } = ctx.peer.send.firstCall
         assert.deepStrictEqual(denied, { type: DenyVote, term: 2 })
       })
 
       it('does not send an AppendEntries message to the candidate', ctx => {
         ctx.leader.handleRequestVote(ctx.peer, 1, { term: 1 })
 
-        sinon.assert.calledOnce(ctx.peer.send)
-        const { args: [{ type }] } = ctx.peer.send.getCall(0)
+        assert(ctx.peer.send.calledOnce)
+        const { args: [{ type }] } = ctx.peer.send.firstCall
         assert(type !== AppendEntries)
       })
     })
@@ -217,15 +218,15 @@ describe('roles/Leader', () => {
       context('the candidate is a known peer', () => {
         it('sends a heartbeat message to the candidate', ctx => {
           ctx.leader.handleRequestVote(ctx.peer, 2, { term: 2 })
-          sinon.assert.calledOnce(ctx.peer.send)
-          wasHeartbeat(ctx.peer.send.getCall(0), { prevLogIndex: 2, leaderCommit: 0 })
+          assert(ctx.peer.send.calledOnce)
+          wasHeartbeat(ctx.peer.send.firstCall, { prevLogIndex: 2, leaderCommit: 0 })
         })
       })
 
       context('the candidate is not a known peer', () => {
         it('does not send an AppendEntries message to the candidate', ctx => {
           ctx.leader.handleRequestVote(stubPeer(), 2, { term: 2 })
-          sinon.assert.notCalled(ctx.peer.send)
+          assert(ctx.peer.send.notCalled)
         })
       })
     })
@@ -248,7 +249,7 @@ describe('roles/Leader', () => {
     context('the peer is not known', () => {
       it('does not send an AppendEntries message to the peer', ctx => {
         ctx.leader.handleRejectEntries(stubPeer(), 1, {})
-        sinon.assert.notCalled(ctx.peer.send)
+        assert(ctx.peer.send.notCalled)
       })
     })
 
@@ -262,7 +263,7 @@ describe('roles/Leader', () => {
         context(`conflictingIndex is ${condition} for the peer`, () => {
           it('does not send an AppendEntries message to the peer', ctx => {
             ctx.leader.handleRejectEntries(ctx.peer, 1, { conflictingIndex })
-            sinon.assert.notCalled(ctx.peer.send)
+            assert(ctx.peer.send.notCalled)
           })
         })
       })
@@ -275,17 +276,17 @@ describe('roles/Leader', () => {
         })
 
         it('sends a heartbeat message to the peer', ctx => {
-          sinon.assert.calledOnce(ctx.peers[1].send)
-          wasHeartbeat(ctx.peers[1].send.getCall(0), { prevLogIndex: 0, leaderCommit: 0 })
+          assert(ctx.peers[1].send.calledOnce)
+          wasHeartbeat(ctx.peers[1].send.firstCall, { prevLogIndex: 0, leaderCommit: 0 })
         })
 
         it('sets the nextIndex for the peer to the conflictingIndex value', ctx => {
           // If the same conflictingIndex is received it must now equal the
           // nextIndex for the peer, which means no AppendEntries message should
           // be sent as a result.
-          ctx.peers[1].send.reset()
+          ctx.peers[1].send.resetHistory()
           ctx.leader.handleRejectEntries(ctx.peers[1], 1, { conflictingIndex: 1 })
-          sinon.assert.notCalled(ctx.peers[1].send)
+          assert(ctx.peers[1].send.notCalled)
         })
       })
     })
@@ -299,15 +300,17 @@ describe('roles/Leader', () => {
     })
 
     context('the peer is known', () => {
-      beforeEach(ctx => sinon.spy(ctx.leader, 'markReplication'))
+      beforeEach(ctx => spy(ctx.leader, 'markReplication'))
 
       // Remember that the log was initialized with a last index of 2. This
       // gives an initial matchIndex for each peer of 0, and nextIndex of 3.
       context('lastLogIndex is equal to or greater than the nextIndex for the peer', () => {
         it('marks replication for entries in the range', ctx => {
           ctx.leader.handleAcceptEntries(ctx.peer, 1, { lastLogIndex: 3 })
-          sinon.assert.calledOnce(ctx.leader.markReplication)
-          sinon.assert.calledWithExactly(ctx.leader.markReplication, 3, 3)
+          assert(ctx.leader.markReplication.calledOnce)
+          const { args: [start, end] } = ctx.leader.markReplication.firstCall
+          assert(start === 3)
+          assert(end === 3)
         })
 
         it('updates nextIndex for the peer', ctx => {
@@ -315,10 +318,10 @@ describe('roles/Leader', () => {
           // then accepting the same lastLogIndex a second time should not
           // result in any entries being marked as replicated again.
           ctx.leader.handleAcceptEntries(ctx.peer, 1, { lastLogIndex: 3 })
-          sinon.assert.calledOnce(ctx.leader.markReplication)
+          assert(ctx.leader.markReplication.calledOnce)
 
           ctx.leader.handleAcceptEntries(ctx.peer, 1, { lastLogIndex: 3 })
-          sinon.assert.calledOnce(ctx.leader.markReplication)
+          assert(ctx.leader.markReplication.calledOnce)
         })
 
         it('updates matchIndex for the peer', ctx => {
@@ -326,10 +329,10 @@ describe('roles/Leader', () => {
           // rejecting an earlier lastLogTerm should not result in an
           // AppendEntries message being sent to the peer.
           ctx.leader.handleAcceptEntries(ctx.peer, 1, { lastLogIndex: 3 })
-          ctx.peer.send.reset()
+          ctx.peer.send.resetHistory()
 
           ctx.leader.handleRejectEntries(ctx.peer, 1, { conflictingIndex: 2 })
-          sinon.assert.notCalled(ctx.peer.send)
+          assert(ctx.peer.send.notCalled)
         })
       })
 
@@ -339,19 +342,19 @@ describe('roles/Leader', () => {
           // nextIndex of 3. Converge so nextIndex is 1.
           const peer = ctx.peers[1]
           ctx.leader.handleRejectEntries(peer, 1, { conflictingIndex: 1 })
-          peer.send.reset()
+          peer.send.resetHistory()
 
           // Now pretend to accept the entry at index 1.
           ctx.leader.handleAcceptEntries(peer, 1, { lastLogIndex: 1 })
-          sinon.assert.calledOnce(peer.send)
-          wasEntries(peer.send.getCall(0), { prevLogIndex: 1, leaderCommit: 0, entryIndexes: [2] })
+          assert(peer.send.calledOnce)
+          wasEntries(peer.send.firstCall, { prevLogIndex: 1, leaderCommit: 0, entryIndexes: [2] })
 
           // Repeat. The nextIndex will now be 2 so it doesn't need updating.
           // It's still smaller than the last index of the log though, so the
           // last entry will be sent.
           ctx.leader.handleAcceptEntries(peer, 1, { lastLogIndex: 1 })
-          sinon.assert.calledTwice(peer.send)
-          wasEntries(peer.send.getCall(1), { prevLogIndex: 1, leaderCommit: 0, entryIndexes: [2] })
+          assert(peer.send.calledTwice)
+          wasEntries(peer.send.secondCall, { prevLogIndex: 1, leaderCommit: 0, entryIndexes: [2] })
         })
       })
     })
@@ -371,11 +374,12 @@ describe('roles/Leader', () => {
         const [first] = ctx.appendedValues
 
         ctx.leader.markReplication(first.index, first.index)
-        sinon.assert.notCalled(ctx.log.commit)
+        assert(ctx.log.commit.notCalled)
 
         ctx.leader.markReplication(first.index, first.index)
-        sinon.assert.calledOnce(ctx.log.commit)
-        sinon.assert.calledWithExactly(ctx.log.commit, first.index)
+        assert(ctx.log.commit.calledOnce)
+        const { args: [index] } = ctx.log.commit.firstCall
+        assert(index === first.index)
       })
     })
 
@@ -383,12 +387,13 @@ describe('roles/Leader', () => {
       it('commits both entries, in order', ctx => {
         const [first, second] = ctx.appendedValues
         ctx.leader.markReplication(first.index, second.index)
-        sinon.assert.notCalled(ctx.log.commit)
+        assert(ctx.log.commit.notCalled)
 
         ctx.leader.markReplication(first.index, second.index)
-        sinon.assert.calledTwice(ctx.log.commit)
-        assert(ctx.log.commit.getCall(0).args[0] === first.index)
-        assert(ctx.log.commit.getCall(1).args[0] === second.index)
+        assert(ctx.log.commit.calledTwice)
+        const { args: [[firstIndex], [secondIndex]] } = ctx.log.commit
+        assert(firstIndex === first.index)
+        assert(secondIndex === second.index)
       })
     })
 
@@ -396,9 +401,9 @@ describe('roles/Leader', () => {
       it('does not commit any entries', ctx => {
         const [, second] = ctx.appendedValues
         ctx.leader.markReplication(second.index, second.index)
-        sinon.assert.notCalled(ctx.log.commit)
+        assert(ctx.log.commit.notCalled)
         ctx.leader.markReplication(second.index, second.index)
-        sinon.assert.notCalled(ctx.log.commit)
+        assert(ctx.log.commit.notCalled)
       })
     })
 
@@ -410,10 +415,10 @@ describe('roles/Leader', () => {
 
         // Send a heartbeat message. It'll include the commit index of the
         // leader.
-        ctx.peer.send.reset()
+        ctx.peer.send.resetHistory()
         ctx.leader.sendHeartbeat() // First heartbeat is skipped
         ctx.leader.sendHeartbeat()
-        wasHeartbeat(ctx.peer.send.getCall(0), { prevLogIndex: first.index - 1, leaderCommit: first.index })
+        wasHeartbeat(ctx.peer.send.firstCall, { prevLogIndex: first.index - 1, leaderCommit: first.index })
       })
     })
   })
@@ -427,15 +432,15 @@ describe('roles/Leader', () => {
       // Only checks whether the scheduler is used. Not a perfect test since
       // it doesn't confirm that the operation is actually gated by the
       // scheduler.
-      const spy = sinon.spy(ctx.leader.scheduler, 'asap')
+      spy(ctx.leader.scheduler, 'asap')
       ctx.leader.append()
-      sinon.assert.calledOnce(spy)
+      assert(ctx.leader.scheduler.asap.calledOnce)
     })
 
     context('the scheduler is aborted', () => {
       it('rejects the returned promise', async ctx => {
         // Mimick abort by calling the abortHandler
-        sinon.stub(ctx.leader.scheduler, 'asap').callsArg(0)
+        stub(ctx.leader.scheduler, 'asap').callsArg(0)
         assert(await getReason(ctx.leader.append()) instanceof Error)
       })
     })
@@ -444,8 +449,10 @@ describe('roles/Leader', () => {
       ctx.log.appendValue.returns(new Promise(() => {}))
       const value = Symbol()
       ctx.leader.append(value)
-      sinon.assert.calledOnce(ctx.log.appendValue)
-      sinon.assert.calledWithExactly(ctx.log.appendValue, 2, value)
+      assert(ctx.log.appendValue.calledOnce)
+      const { args: [term, appended] } = ctx.log.appendValue.firstCall
+      assert(term === 2)
+      assert(appended === value)
     })
 
     context('the leader is destroyed while appending the value', () => {
@@ -467,7 +474,7 @@ describe('roles/Leader', () => {
         // Converge so nextIndex is 1.
         for (const peer of ctx.peers) {
           ctx.leader.handleRejectEntries(peer, 1, { conflictingIndex: 1 })
-          peer.send.reset()
+          peer.send.resetHistory()
         }
 
         supportAppend(ctx)
@@ -476,41 +483,41 @@ describe('roles/Leader', () => {
 
       it('sends new entries to each peer', ctx => {
         for (const peer of ctx.peers) {
-          sinon.assert.calledOnce(peer.send)
+          assert(peer.send.calledOnce)
           // Entry's at index 1 and 2 still needed to be sent. Entry 3 is the
           // new one.
-          wasEntries(peer.send.getCall(0), { prevLogIndex: 0, leaderCommit: 0, entryIndexes: [1, 2, 3] })
+          wasEntries(peer.send.firstCall, { prevLogIndex: 0, leaderCommit: 0, entryIndexes: [1, 2, 3] })
         }
       })
 
       it('does not send the next heartbeat message', ctx => {
         for (const peer of ctx.peers) {
-          peer.send.reset()
+          peer.send.resetHistory()
         }
 
         ctx.leader.start()
         ctx.clock.tick(ctx.heartbeatInterval)
         for (const peer of ctx.peers) {
-          sinon.assert.notCalled(peer.send)
+          assert(peer.send.notCalled)
         }
       })
 
       context('another heartbeat interval passes', () => {
         it('sends the heartbeat message', ctx => {
           for (const peer of ctx.peers) {
-            peer.send.reset()
+            peer.send.resetHistory()
           }
 
           ctx.leader.start()
           ctx.clock.tick(ctx.heartbeatInterval)
           for (const peer of ctx.peers) {
-            sinon.assert.notCalled(peer.send)
+            assert(peer.send.notCalled)
           }
 
           ctx.clock.tick(ctx.heartbeatInterval)
           for (const peer of ctx.peers) {
-            sinon.assert.calledOnce(peer.send)
-            wasHeartbeat(peer.send.getCall(0), { prevLogIndex: 0, leaderCommit: 0 })
+            assert(peer.send.calledOnce)
+            wasHeartbeat(peer.send.firstCall, { prevLogIndex: 0, leaderCommit: 0 })
           }
         })
       })

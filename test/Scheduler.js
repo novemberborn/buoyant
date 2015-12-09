@@ -1,6 +1,6 @@
 import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import Scheduler from '../lib/Scheduler'
 
@@ -17,7 +17,7 @@ function remainsPending (promise) {
 
 describe('Scheduler', () => {
   beforeEach(ctx => {
-    ctx.crashHandler = sinon.stub()
+    ctx.crashHandler = stub()
     ctx.scheduler = new Scheduler(ctx.crashHandler)
   })
 
@@ -27,9 +27,9 @@ describe('Scheduler', () => {
 
       context('handleAbort is truthy', () => {
         it('is called', ctx => {
-          const handleAbort = sinon.spy()
+          const handleAbort = spy()
           ctx.scheduler.asap(handleAbort)
-          sinon.assert.calledOnce(handleAbort)
+          assert(handleAbort.calledOnce)
         })
       })
 
@@ -40,10 +40,10 @@ describe('Scheduler', () => {
 
     context('no operation is currently active', () => {
       it('calls fn', ctx => {
-        const fn = sinon.spy()
+        const fn = spy()
         ctx.scheduler.asap(null, fn)
 
-        sinon.assert.calledOnce(fn)
+        assert(fn.calledOnce)
       })
 
       context('fn throws', () => {
@@ -51,8 +51,9 @@ describe('Scheduler', () => {
           const err = Symbol()
           ctx.scheduler.asap(null, () => { throw err })
 
-          sinon.assert.calledOnce(ctx.crashHandler)
-          sinon.assert.calledWithExactly(ctx.crashHandler, err)
+          assert(ctx.crashHandler.calledOnce)
+          const { args: [reason] } = ctx.crashHandler.firstCall
+          assert(reason === err)
         })
 
         it('returns a perpetually pending promise', async ctx => {
@@ -87,8 +88,9 @@ describe('Scheduler', () => {
             ctx.scheduler.asap(null, () => Promise.reject(err))
 
             await Promise.resolve()
-            sinon.assert.calledOnce(ctx.crashHandler)
-            sinon.assert.calledWithExactly(ctx.crashHandler, err)
+            assert(ctx.crashHandler.calledOnce)
+            const { args: [reason] } = ctx.crashHandler.firstCall
+            assert(reason === err)
           })
 
           describe('the promise returned by asap()', () => {
@@ -103,10 +105,10 @@ describe('Scheduler', () => {
     context('another operation is currently active', () => {
       it('prevents two operations from being run at the same time', ctx => {
         ctx.scheduler.asap(null, () => new Promise(() => {}))
-        const second = sinon.spy()
+        const second = spy()
         ctx.scheduler.asap(null, second)
 
-        sinon.assert.notCalled(second)
+        assert(second.notCalled)
       })
 
       it('returns a promise for when the second operation has finished', ctx => {
@@ -117,22 +119,22 @@ describe('Scheduler', () => {
       describe('the second operation', () => {
         it('is run after the first', async ctx => {
           ctx.scheduler.asap(null, () => Promise.resolve())
-          const second = sinon.spy()
+          const second = spy()
           await ctx.scheduler.asap(null, second)
 
-          sinon.assert.calledOnce(second)
+          assert(second.calledOnce)
         })
       })
 
       describe('a third operation', () => {
         it('is run after the second', async ctx => {
           ctx.scheduler.asap(null, () => Promise.resolve())
-          const second = sinon.spy()
+          const second = spy()
           ctx.scheduler.asap(null, second)
-          const third = sinon.spy()
+          const third = spy()
           await ctx.scheduler.asap(null, third)
 
-          sinon.assert.callOrder(second, third)
+          assert(second.calledBefore(third))
         })
       })
     })
@@ -141,25 +143,25 @@ describe('Scheduler', () => {
   describe('#abort ()', () => {
     it('stops any remaining operations from being run', async ctx => {
       const first = ctx.scheduler.asap(null, () => Promise.resolve())
-      const second = sinon.spy()
+      const second = spy()
       ctx.scheduler.asap(null, second)
 
       ctx.scheduler.abort()
       await first
-      sinon.assert.notCalled(second)
+      assert(second.notCalled)
     })
 
     it('invokes the handleAbort callbacks of any remaining operations', ctx => {
-      const first = sinon.spy()
+      const first = spy()
       ctx.scheduler.asap(first, () => Promise.resolve())
-      const second = sinon.spy()
+      const second = spy()
       ctx.scheduler.asap(second, () => {})
-      const third = sinon.spy()
+      const third = spy()
       ctx.scheduler.asap(third, () => {})
 
       ctx.scheduler.abort()
-      sinon.assert.notCalled(first)
-      sinon.assert.callOrder(second, third)
+      assert(first.notCalled)
+      assert(second.calledBefore(third))
     })
   })
 })

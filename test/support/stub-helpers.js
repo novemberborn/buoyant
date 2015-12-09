@@ -1,7 +1,7 @@
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 export function stubLog () {
-  const log = sinon.stub({
+  const log = stub({
     _lastIndex () {},
     get lastIndex () { return this._lastIndex() },
     _lastTerm () {},
@@ -25,7 +25,7 @@ export function stubLog () {
 }
 
 export function stubMessages () {
-  const messages = sinon.stub({ canTake () {}, take () {}, await () {} })
+  const messages = stub({ canTake () {}, take () {}, await () {} })
   messages.canTake.returns(false)
   messages.take.returns(null)
   messages.await.returns(new Promise(() => {}))
@@ -34,11 +34,11 @@ export function stubMessages () {
 
 let peerCount = 0
 export function stubPeer () {
-  return sinon.stub({ messages: stubMessages(), send () {}, id: ++peerCount })
+  return stub({ messages: stubMessages(), send () {}, id: ++peerCount })
 }
 
 export function stubState () {
-  const state = sinon.stub({
+  const state = stub({
     _currentTerm () {},
     get currentTerm () { return this._currentTerm() },
     _votedFor () {},
