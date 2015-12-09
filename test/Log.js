@@ -23,7 +23,7 @@ describe('Log', () => {
   const seedEntries = async ctx => {
     const entries = [1, 2, 3].map(index => new Entry(index, 1, Symbol(`seed entry ${index}`)))
     await ctx.log.mergeEntries(entries)
-    ctx.persistEntries.reset()
+    ctx.persistEntries.resetHistory()
     return entries
   }
 
