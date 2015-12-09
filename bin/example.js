@@ -22,7 +22,7 @@ sourceMapSupport.install({
   environment: 'node',
   handleUncaughtExceptions: false,
   retrieveSourceMap (source) {
-    return transformMaps[source] || sourceMapSupport.retrieveSourceMap(source)
+    return transformMaps[source]
   }
 })
 

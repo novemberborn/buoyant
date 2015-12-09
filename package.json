@@ -55,7 +55,7 @@
     "remap-istanbul": "^0.4.0",
     "rimraf": "^2.4.4",
     "sinon": "^1.17.2",
-    "source-map-support": "^0.3.3",
+    "source-map-support": "^0.4.0",
     "standard": "^5.4.1"
   },
   "standard": {
