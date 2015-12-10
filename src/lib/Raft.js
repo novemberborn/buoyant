@@ -134,7 +134,7 @@ export default class Raft {
     // follower, or to crash, causing the role to be destroyed before the event
     // can be emitted.
     if (this.currentRole === role) {
-      this.emitEvent('leader')
+      this.emitEvent('leader', this.state.currentTerm)
     }
   }
 
@@ -161,7 +161,7 @@ export default class Raft {
     // for it to crash, causing the role to be destroyed before the event can be
     // emitted.
     if (this.currentRole === role) {
-      this.emitEvent('candidate')
+      this.emitEvent('candidate', this.state.currentTerm)
     }
   }
 
@@ -188,7 +188,7 @@ export default class Raft {
     // for it to crash, causing the role to be destroyed before the event can be
     // emitted.
     if (this.currentRole === role) {
-      this.emitEvent('follower')
+      this.emitEvent('follower', this.state.currentTerm)
     }
   }
 
