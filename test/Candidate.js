@@ -1,5 +1,3 @@
-import { resolve } from 'path'
-
 import { afterEach, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { spy, stub } from 'sinon'
@@ -19,7 +17,7 @@ import {
 } from '🏠/lib/symbols'
 
 describe('roles/Candidate', () => {
-  setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
+  setupConstructors('Candidate')
 
   beforeEach(ctx => {
     const becomeLeader = ctx.becomeLeader = stub()

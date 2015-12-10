@@ -1,6 +1,6 @@
 import { before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { stub } from 'sinon'
 
 import { getReason } from './support/utils'
@@ -9,7 +9,7 @@ describe('NonPeerReceiver', () => {
   before(ctx => {
     ctx.MessageBuffer = stub()
     ctx.Peer = stub()
-    ctx.NonPeerReceiver = proxyquire.noCallThru()('../lib/NonPeerReceiver', {
+    ctx.NonPeerReceiver = proxyquire('lib/NonPeerReceiver', {
       './MessageBuffer': function (...args) { return ctx.MessageBuffer(...args) },
       './Peer': function (...args) { return ctx.Peer(...args) }
     })['default']

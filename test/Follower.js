@@ -1,5 +1,3 @@
-import { resolve } from 'path'
-
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { install as installClock } from 'lolex'
@@ -24,7 +22,7 @@ describe('roles/Follower', () => {
   before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))
   after(ctx => ctx.clock.uninstall())
 
-  setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
+  setupConstructors('Follower')
 
   beforeEach(ctx => {
     const convertToCandidate = ctx.convertToCandidate = stub()

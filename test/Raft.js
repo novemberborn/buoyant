@@ -1,6 +1,6 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
 import { stubState } from './support/stub-helpers'
@@ -19,7 +19,7 @@ describe('Raft', () => {
     ctx.NonPeerReceiver = spy(() => stub())
     ctx.Peer = spy(() => stub())
 
-    ctx.Raft = proxyquire.noCallThru()('../lib/Raft', {
+    ctx.Raft = proxyquire('lib/Raft', {
       './roles/Candidate': function (...args) { return ctx.Candidate(...args) },
       './roles/Follower': function (...args) { return ctx.Follower(...args) },
       './roles/Leader': function (...args) { return ctx.Leader(...args) },

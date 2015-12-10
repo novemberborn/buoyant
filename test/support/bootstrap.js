@@ -22,11 +22,15 @@ sourceMapSupport.install({
 const homeDir = path.resolve(__dirname, '..', '..')
 // Resolve the `!mocha` source to the wrapper module.
 const mochaWrapperSource = path.join(__dirname, 'mocha-wrapper.js')
+// Resolve the `!proxyquire` source to the wrapper module.
+const proxyquireWrapperSource = path.join(__dirname, 'proxyquire-wrapper.js')
 function resolveModuleSource (source, filename) {
   if (source.startsWith('🏠/') || source === '🏠') {
     return path.join(homeDir, source.slice(3)) // 2 bytes for the 🏠 character!
   } else if (source === '!mocha') {
     return mochaWrapperSource
+  } else if (source === '!proxyquire') {
+    return proxyquireWrapperSource
   } else {
     return source
   }

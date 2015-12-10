@@ -1,12 +1,12 @@
 import { before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
 describe('expose-events', () => {
   before(ctx => {
     ctx.process = stub({ nextTick () {} })
-    ctx.exposeEvents = proxyquire.noCallThru()('../lib/expose-events', {
+    ctx.exposeEvents = proxyquire('lib/expose-events', {
       './process': ctx.process
     })['default']
   })
