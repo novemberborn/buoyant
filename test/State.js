@@ -1,6 +1,6 @@
 import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
@@ -8,14 +8,14 @@ import State from '../lib/State'
 
 describe('State', () => {
   beforeEach(ctx => {
-    ctx.persist = sinon.stub().returns(Promise.resolve())
+    ctx.persist = stub().returns(Promise.resolve())
     ctx.state = new State(ctx.persist)
   })
 
   const testPersistence = setup => {
     it('persists the currentTerm and votedFor values', ctx => {
       const { currentTerm, votedFor } = setup(ctx)
-      const { args: [{ currentTerm: persistedTerm, votedFor: persistedVote }] } = ctx.persist.getCall(0)
+      const { args: [{ currentTerm: persistedTerm, votedFor: persistedVote }] } = ctx.persist.firstCall
       assert(currentTerm === persistedTerm)
       assert(votedFor === persistedVote)
     })

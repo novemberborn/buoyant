@@ -1,6 +1,6 @@
 import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import { Noop } from '../lib/symbols'
 import Entry from '../lib/Entry'
@@ -8,8 +8,8 @@ import LogEntryApplier from '../lib/LogEntryApplier'
 
 describe('LogEntryApplier', () => {
   beforeEach(ctx => {
-    const applyEntry = ctx.applyEntry = sinon.stub().returns(Promise.resolve())
-    const crashHandler = ctx.crashHandler = sinon.stub()
+    const applyEntry = ctx.applyEntry = stub().returns(Promise.resolve())
+    const crashHandler = ctx.crashHandler = stub()
     ctx.applier = new LogEntryApplier({ applyEntry, crashHandler })
   })
 
@@ -70,45 +70,44 @@ describe('LogEntryApplier', () => {
       it('prevents two entries being applied at the same time', ctx => {
         ctx.applier.enqueue(new Entry(1, 1, Symbol()))
         ctx.applier.enqueue(new Entry(2, 1, Symbol()))
-        sinon.assert.calledOnce(ctx.applyEntry)
+        assert(ctx.applyEntry.calledOnce)
       })
 
       describe('the second entry', () => {
         it('is applied after the first', async ctx => {
           const entries = [new Entry(1, 1, Symbol()), new Entry(2, 1, Symbol())]
-          const firstApplied = sinon.spy()
+          const firstApplied = spy()
           ctx.applier.enqueue(entries[0], firstApplied)
           await new Promise(resolve => {
             ctx.applier.enqueue(entries[1], () => {
-              sinon.assert.calledOnce(firstApplied)
+              assert(firstApplied.calledOnce)
               resolve()
             })
           })
 
-          sinon.assert.calledTwice(ctx.applyEntry)
-          assert(ctx.applyEntry.getCall(0).args[0] === entries[0])
-          assert(ctx.applyEntry.getCall(1).args[0] === entries[1])
+          assert(ctx.applyEntry.calledTwice)
+          const { args: [[first], [second]] } = ctx.applyEntry
+          assert.deepStrictEqual([first, second], entries)
         })
       })
 
       describe('a third entry', () => {
         it('is applied after the second', async ctx => {
           const entries = [new Entry(1, 1, Symbol()), new Entry(2, 1, Symbol()), new Entry(3, 1, Symbol())]
-          const firstApplied = sinon.spy()
+          const firstApplied = spy()
           ctx.applier.enqueue(entries[0], firstApplied)
-          const secondApplied = sinon.spy()
+          const secondApplied = spy()
           ctx.applier.enqueue(entries[1], secondApplied)
           await new Promise(resolve => {
             ctx.applier.enqueue(entries[2], () => {
-              sinon.assert.callOrder(firstApplied, secondApplied)
+              assert(firstApplied.calledBefore(secondApplied))
               resolve()
             })
           })
 
-          sinon.assert.calledThrice(ctx.applyEntry)
-          assert(ctx.applyEntry.getCall(0).args[0] === entries[0])
-          assert(ctx.applyEntry.getCall(1).args[0] === entries[1])
-          assert(ctx.applyEntry.getCall(2).args[0] === entries[2])
+          assert(ctx.applyEntry.calledThrice)
+          const { args: [[first], [second], [third]] } = ctx.applyEntry
+          assert.deepStrictEqual([first, second, third], entries)
         })
       })
     })
@@ -117,8 +116,9 @@ describe('LogEntryApplier', () => {
       it('applies the entry', ctx => {
         const entry = new Entry(1, 1, Symbol())
         ctx.applier.enqueue(entry)
-        sinon.assert.calledOnce(ctx.applyEntry)
-        sinon.assert.calledWithExactly(ctx.applyEntry, entry)
+        assert(ctx.applyEntry.calledOnce)
+        const { args: [applied] } = ctx.applyEntry.firstCall
+        assert(applied === entry)
       })
 
       context('applying the entry succeeded', () => {
@@ -139,14 +139,15 @@ describe('LogEntryApplier', () => {
             let doApply
             ctx.applyEntry.returns(new Promise(resolve => doApply = resolve))
 
-            const wasApplied = sinon.spy()
+            const wasApplied = spy()
             ctx.applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
 
             const result = Symbol()
             doApply(result)
             await Promise.resolve()
-            sinon.assert.calledOnce(wasApplied)
-            sinon.assert.calledWithExactly(wasApplied, result)
+            assert(wasApplied.calledOnce)
+            const { args: [applicationResult] } = wasApplied.firstCall
+            assert(applicationResult === result)
           })
         })
       })
@@ -162,8 +163,9 @@ describe('LogEntryApplier', () => {
             const err = Symbol()
             doFail(err)
             await Promise.resolve()
-            sinon.assert.calledOnce(ctx.crashHandler)
-            sinon.assert.calledWithExactly(ctx.crashHandler, err)
+            assert(ctx.crashHandler.calledOnce)
+            const { args: [reason] } = ctx.crashHandler.firstCall
+            assert(reason === err)
           })
         })
       })
@@ -174,7 +176,7 @@ describe('LogEntryApplier', () => {
             ctx.applier.enqueue(new Entry(1, 1, Noop), resolve)
           })
 
-          sinon.assert.notCalled(ctx.applyEntry)
+          assert(ctx.applyEntry.notCalled)
         })
 
         it('does set lastApplied to the entry’s index', async ctx => {
@@ -210,17 +212,18 @@ describe('LogEntryApplier', () => {
         let doApply
         ctx.applyEntry.returns(new Promise(resolve => doApply = resolve))
 
-        const wasApplied = sinon.spy()
+        const wasApplied = spy()
         ctx.applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
 
-        const finished = sinon.spy()
+        const finished = spy()
         const p = ctx.applier.finish().then(finished)
 
-        sinon.assert.notCalled(wasApplied)
+        assert(wasApplied.notCalled)
         doApply()
         await p
-        sinon.assert.callOrder(wasApplied, finished)
-        sinon.assert.calledWithExactly(finished, undefined)
+        assert(wasApplied.calledBefore(finished))
+        const { args: [value] } = finished.firstCall
+        assert(value === undefined)
       })
 
       it('does not change the lastQueued value', ctx => {
@@ -240,11 +243,11 @@ describe('LogEntryApplier', () => {
       })
       ctx.applier.enqueue(new Entry(2, 1, Symbol()))
 
-      sinon.assert.calledOnce(ctx.applyEntry)
+      assert(ctx.applyEntry.calledOnce)
       ctx.applier.destroy()
 
       await firstApplied
-      sinon.assert.calledOnce(ctx.applyEntry)
+      assert(ctx.applyEntry.calledOnce)
     })
   })
 })

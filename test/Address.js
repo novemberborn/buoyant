@@ -1,6 +1,6 @@
 import { before, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 import Address from '../lib/Address'
 
@@ -102,7 +102,7 @@ describe('Address', () => {
   describe('#inspect ()', () => {
     it('returns a string serialization of the address', () => {
       const address = new Address('///👾')
-      sinon.stub(address, 'toString').returns('🎈')
+      stub(address, 'toString').returns('🎈')
       assert(address.inspect() === '[buoyant:Address 🎈]')
     })
   })

@@ -1,7 +1,7 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
 import proxyquire from 'proxyquire'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
@@ -15,7 +15,7 @@ import Entry from '../lib/Entry'
 
 describe('main', () => {
   before(ctx => {
-    ctx.Server = sinon.spy(() => sinon.stub())
+    ctx.Server = spy(() => stub())
     ctx.main = proxyquire.noCallThru()('../main', {
       './lib/Server': function (...args) { return ctx.Server(...args) }
     })
@@ -64,8 +64,8 @@ describe('main', () => {
         context('it is a valid address', () => {
           it('creates the server with an Address instance for that string', ctx => {
             ctx.createServer({ address: '///foo' })
-            sinon.assert.calledOnce(ctx.Server)
-            const { args: [{ address }] } = ctx.Server.getCall(0)
+            assert(ctx.Server.calledOnce)
+            const { args: [{ address }] } = ctx.Server.firstCall
             assert(address instanceof Address)
             assert(address.serverId === 'foo')
           })
@@ -85,8 +85,8 @@ describe('main', () => {
         it('creates the server with the address, as-is', ctx => {
           const address = new Address('///foo')
           ctx.createServer({ address })
-          sinon.assert.calledOnce(ctx.Server)
-          const { args: [{ address: asIs }] } = ctx.Server.getCall(0)
+          assert(ctx.Server.calledOnce)
+          const { args: [{ address: asIs }] } = ctx.Server.firstCall
           assert(asIs === address)
         })
       })
@@ -105,8 +105,8 @@ describe('main', () => {
           it('is used as the server‘s id', ctx => {
             const address = new Address('///foo')
             ctx.createServer({ address })
-            sinon.assert.calledOnce(ctx.Server)
-            const { args: [{ id }] } = ctx.Server.getCall(0)
+            assert(ctx.Server.calledOnce)
+            const { args: [{ id }] } = ctx.Server.firstCall
             assert(id === address.serverId)
           })
         })
@@ -160,8 +160,8 @@ describe('main', () => {
         it('creates the server with the electionTimeoutWindow', ctx => {
           const values = [10, 20]
           ctx.createServer({ electionTimeoutWindow: values })
-          sinon.assert.calledOnce(ctx.Server)
-          const { args: [{ electionTimeoutWindow }] } = ctx.Server.getCall(0)
+          assert(ctx.Server.calledOnce)
+          const { args: [{ electionTimeoutWindow }] } = ctx.Server.firstCall
           assert(electionTimeoutWindow === values)
         })
       })
@@ -186,8 +186,8 @@ describe('main', () => {
       context('is an integer greater than zero', () => {
         it('creates the server with the heartbeatInterval', ctx => {
           ctx.createServer({ heartbeatInterval: 5 })
-          sinon.assert.calledOnce(ctx.Server)
-          const { args: [{ heartbeatInterval }] } = ctx.Server.getCall(0)
+          assert(ctx.Server.calledOnce)
+          const { args: [{ heartbeatInterval }] } = ctx.Server.firstCall
           assert(heartbeatInterval === 5)
         })
       })
@@ -209,24 +209,24 @@ describe('main', () => {
             it(`creates the server with the ${name}`, ctx => {
               const fn = () => {}
               ctx.createServer({ [name]: fn })
-              sinon.assert.calledOnce(ctx.Server)
-              const { args: [{ [name]: received }] } = ctx.Server.getCall(0)
+              assert(ctx.Server.calledOnce)
+              const { args: [{ [name]: received }] } = ctx.Server.firstCall
               assert(received === fn)
             })
           } else {
             it(`creates the server with a Promise-wrapper for the ${name}`, ctx => {
               ctx.createServer({ [name] () {} })
-              sinon.assert.calledOnce(ctx.Server)
-              const { args: [{ [name]: wrapper }] } = ctx.Server.getCall(0)
+              assert(ctx.Server.calledOnce)
+              const { args: [{ [name]: wrapper }] } = ctx.Server.firstCall
               assert(typeof wrapper === 'function')
             })
 
             describe('the Promise-wrapper', () => {
               beforeEach(ctx => {
-                ctx.original = sinon.stub()
+                ctx.original = stub()
                 ctx.createServer({ [name]: ctx.original })
-                sinon.assert.calledOnce(ctx.Server)
-                const { args: [{ [name]: wrapper }] } = ctx.Server.getCall(0)
+                assert(ctx.Server.calledOnce)
+                const { args: [{ [name]: wrapper }] } = ctx.Server.firstCall
                 ctx.wrapper = wrapper
               })
 
@@ -237,8 +237,9 @@ describe('main', () => {
                 }
                 ctx.wrapper(...args)
 
-                sinon.assert.calledOnce(ctx.original)
-                assert.deepStrictEqual(ctx.original.getCall(0).args, args)
+                assert(ctx.original.calledOnce)
+                const { args: propagated } = ctx.original.firstCall
+                assert.deepStrictEqual(propagated, args)
               })
 
               context('the original function returns a promise', () => {

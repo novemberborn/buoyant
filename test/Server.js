@@ -1,7 +1,7 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
 import proxyquire from 'proxyquire'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
@@ -10,8 +10,8 @@ import Address from '../lib/Address'
 
 describe('Server', () => {
   before(ctx => {
-    ctx.exposeEvents = sinon.spy((...args) => exposeEvents(...args))
-    ctx.Raft = sinon.spy(() => sinon.stub({
+    ctx.exposeEvents = spy((...args) => exposeEvents(...args))
+    ctx.Raft = spy(() => stub({
       replaceState () {},
       replaceLog () {},
       close () {},
@@ -20,7 +20,7 @@ describe('Server', () => {
       append () {}
     }))
 
-    ctx.createTransport = sinon.spy(() => sinon.stub({
+    ctx.createTransport = spy(() => stub({
       listen () {},
       connect () {},
       destroy () {}
@@ -52,14 +52,15 @@ describe('Server', () => {
     const createTransport = (...args) => ctx.createTransportProxy.createTransport(...args)
 
     ctx.server = new ctx.Server({ id, address, electionTimeoutWindow, heartbeatInterval, createTransport, persistState, persistEntries, applyEntry, crashHandler })
+    ctx.raft = ctx.server._raft
   })
 
   describe('constructor ({ id, address, electionTimeoutWindow, heartbeatInterval, createTransport, persistState, persistEntries, applyEntry, crashHandler })', () => {
     it('instantiates the raft implementation', ctx => {
-      sinon.assert.calledOnce(ctx.Raft)
-      assert(ctx.server._raft === ctx.Raft.getCall(0).returnValue)
+      assert(ctx.Raft.calledOnce)
+      assert(ctx.raft === ctx.Raft.firstCall.returnValue)
 
-      const { args: [{ id, electionTimeoutWindow, heartbeatInterval, persistState, persistEntries, applyEntry, crashHandler, emitEvent }] } = ctx.Raft.getCall(0)
+      const { args: [{ id, electionTimeoutWindow, heartbeatInterval, persistState, persistEntries, applyEntry, crashHandler, emitEvent }] } = ctx.Raft.firstCall
       assert(id === ctx.id)
       assert(electionTimeoutWindow === ctx.electionTimeoutWindow)
       assert(heartbeatInterval === ctx.heartbeatInterval)
@@ -72,24 +73,26 @@ describe('Server', () => {
 
     context('the raft implementation emits an event', () => {
       it('is emitted on the server', async ctx => {
-        const spy = sinon.spy()
+        const listener = spy()
         const event = Symbol()
-        ctx.server.on(event, spy)
+        ctx.server.on(event, listener)
 
-        const { args: [{ emitEvent }] } = ctx.Raft.getCall(0)
+        const { args: [{ emitEvent }] } = ctx.Raft.firstCall
 
         const args = [Symbol(), Symbol()]
         emitEvent(event, ...args)
 
         await Promise.resolve()
-        sinon.assert.calledOnce(spy)
-        sinon.assert.calledWithExactly(spy, ...args)
+        assert(listener.calledOnce)
+        const { args: receivedArgs } = listener.firstCall
+        assert.deepStrictEqual(receivedArgs, args)
       })
     })
 
     it('exposes events', ctx => {
-      sinon.assert.calledOnce(ctx.exposeEvents)
-      sinon.assert.calledWithExactly(ctx.exposeEvents, ctx.server)
+      assert(ctx.exposeEvents.calledOnce)
+      const { args: [context] } = ctx.exposeEvents.firstCall
+      assert(context === ctx.server)
     })
 
     ;['id', 'address'].forEach(prop => {
@@ -115,8 +118,9 @@ describe('Server', () => {
       it('calls replaceState() on the raft implementation', ctx => {
         const state = Symbol()
         ctx.server.restoreState(state)
-        sinon.assert.calledOnce(ctx.server._raft.replaceState)
-        sinon.assert.calledWithExactly(ctx.server._raft.replaceState, state)
+        assert(ctx.raft.replaceState.calledOnce)
+        const { args: [replaced] } = ctx.raft.replaceState.firstCall
+        assert(replaced === state)
       })
     })
   })
@@ -133,8 +137,10 @@ describe('Server', () => {
       it('calls restoreLog() on the raft implementation', ctx => {
         const [entries, lastApplied] = [Symbol(), Symbol()]
         ctx.server.restoreLog(entries, lastApplied)
-        sinon.assert.calledOnce(ctx.server._raft.replaceLog)
-        sinon.assert.calledWithExactly(ctx.server._raft.replaceLog, entries, lastApplied)
+        assert(ctx.raft.replaceLog.calledOnce)
+        const { args: [replacedEntries, replacedApplied] } = ctx.raft.replaceLog.firstCall
+        assert(replacedEntries === entries)
+        assert(replacedApplied === lastApplied)
       })
     })
   })
@@ -142,26 +148,27 @@ describe('Server', () => {
   const closeOrDestroy = (which, pastTense) => {
     it(`calls ${which}() on the raft implementation`, ctx => {
       ctx.server[which]()
-      sinon.assert.calledOnce(ctx.server._raft[which])
+      assert(ctx.raft[which].calledOnce)
     })
 
     context('the server has joined a cluster', () => {
       it('destroys the transport', ctx => {
         ctx.server.join()
-        const transport = ctx.createTransport.getCall(0).returnValue
+        const { returnValue: transport } = ctx.createTransport.firstCall
 
         ctx.server[which]()
-        sinon.assert.calledOnce(transport.destroy)
+        assert(transport.destroy.calledOnce)
       })
     })
 
     context(`the raft implementation was ${pastTense} successfully`, () => {
-      beforeEach(ctx => ctx.server._raft[which].returns(Promise.resolve()))
+      beforeEach(ctx => ctx.raft[which].returns(Promise.resolve()))
 
       context('there was a transport to destroy', () => {
         beforeEach(ctx => {
           ctx.server.join()
-          ctx.transport = ctx.createTransport.getCall(0).returnValue
+          const { returnValue: transport } = ctx.createTransport.firstCall
+          ctx.transport = transport
         })
 
         context('it returned a fulfilled promise', () => {
@@ -207,7 +214,7 @@ describe('Server', () => {
     context(`the raft implementation failed to ${which}`, () => {
       it('rejects the returned promise with the failure reason', async ctx => {
         const err = Symbol()
-        ctx.server._raft[which].returns(Promise.reject(err))
+        ctx.raft[which].returns(Promise.reject(err))
         assert(await getReason(ctx.server[which]()) === err)
       })
     })
@@ -226,13 +233,14 @@ describe('Server', () => {
       context('there was a transport to destroy', () => {
         it('is only destroyed once', ctx => {
           ctx.server.join()
-          ctx.transport = ctx.createTransport.getCall(0).returnValue
+          const { returnValue: transport } = ctx.createTransport.firstCall
+          ctx.transport = transport
 
           ctx.server.close()
-          sinon.assert.calledOnce(ctx.transport.destroy)
+          assert(ctx.transport.destroy.calledOnce)
 
           ctx.server.close()
-          sinon.assert.calledOnce(ctx.transport.destroy)
+          assert(ctx.transport.destroy.calledOnce)
         })
       })
     })
@@ -259,13 +267,14 @@ describe('Server', () => {
       context('there was a transport to destroy', () => {
         it('is only destroyed once', ctx => {
           ctx.server.join()
-          ctx.transport = ctx.createTransport.getCall(0).returnValue
+          const { returnValue: transport } = ctx.createTransport.firstCall
+          ctx.transport = transport
 
           ctx.server.destroy()
-          sinon.assert.calledOnce(ctx.transport.destroy)
+          assert(ctx.transport.destroy.calledOnce)
 
           ctx.server.destroy()
-          sinon.assert.calledOnce(ctx.transport.destroy)
+          assert(ctx.transport.destroy.calledOnce)
         })
       })
     })
@@ -283,7 +292,7 @@ describe('Server', () => {
     it('creates Address instances if necessary', async ctx => {
       await ctx.server.join(['///first', '///second'])
 
-      const { args: [{ addresses }] } = ctx.server._raft.joinInitialCluster.getCall(0)
+      const { args: [{ addresses }] } = ctx.raft.joinInitialCluster.firstCall
       assert(addresses.length === 2)
       assert(addresses[0].serverId === 'first')
       assert(addresses[1].serverId === 'second')
@@ -300,7 +309,7 @@ describe('Server', () => {
         const address = new Address('///foo')
         await ctx.server.join([address])
 
-        const { args: [{ addresses }] } = ctx.server._raft.joinInitialCluster.getCall(0)
+        const { args: [{ addresses }] } = ctx.raft.joinInitialCluster.firstCall
         assert(addresses.length === 1)
         assert(addresses[0] === address)
       })
@@ -310,7 +319,7 @@ describe('Server', () => {
       it('joins an empty cluster', async ctx => {
         await ctx.server.join()
 
-        const { args: [{ addresses }] } = ctx.server._raft.joinInitialCluster.getCall(0)
+        const { args: [{ addresses }] } = ctx.raft.joinInitialCluster.firstCall
         assert(addresses.length === 0)
       })
     })
@@ -344,14 +353,15 @@ describe('Server', () => {
 
     it('creates the transport', ctx => {
       ctx.server.join()
-      sinon.assert.calledOnce(ctx.createTransport)
-      sinon.assert.calledWithExactly(ctx.createTransport, ctx.address)
+      assert(ctx.createTransport.calledOnce)
+      const { args: [address] } = ctx.createTransport.firstCall
+      assert(address === ctx.address)
     })
 
     it('calls listen() on the transport', ctx => {
       ctx.server.join()
-      const transport = ctx.createTransport.getCall(0).returnValue
-      sinon.assert.calledOnce(transport.listen)
+      const { returnValue: transport } = ctx.createTransport.firstCall
+      assert(transport.listen.calledOnce)
     })
 
     const testJoinFailureHandling = (type, getError) => {
@@ -359,7 +369,7 @@ describe('Server', () => {
         it('destroys the transport', async ctx => {
           await getReason(ctx.server.join())
 
-          sinon.assert.calledOnce(ctx.transport.destroy)
+          assert(ctx.transport.destroy.calledOnce)
         })
 
         it(`rejects the returned promise with the ${type} failure`, async ctx => {
@@ -414,7 +424,7 @@ describe('Server', () => {
             // Get a valid transport stub, then change createTransport() to
             // always return that stub.
             ctx.transport = ctx.createTransport()
-            ctx.createTransportProxy.createTransport = sinon.stub().returns(ctx.transport)
+            ctx.createTransportProxy.createTransport = stub().returns(ctx.transport)
 
             ctx.listeningFailure = Symbol()
             setup(ctx.transport.listen, ctx.listeningFailure)
@@ -435,7 +445,7 @@ describe('Server', () => {
             // Get a valid transport stub, then change createTransport() to
             // always return that stub.
             ctx.transport = ctx.createTransport()
-            ctx.createTransportProxy.createTransport = sinon.stub().returns(ctx.transport)
+            ctx.createTransportProxy.createTransport = stub().returns(ctx.transport)
 
             ctx.nonPeerStream = Symbol()
             setup(ctx.transport.listen, ctx.nonPeerStream)
@@ -444,8 +454,8 @@ describe('Server', () => {
           it('joins the cluster', async ctx => {
             await ctx.server.join()
 
-            sinon.assert.calledOnce(ctx.server._raft.joinInitialCluster)
-            const { args: [{ addresses, connect, nonPeerStream }] } = ctx.server._raft.joinInitialCluster.getCall(0)
+            assert(ctx.raft.joinInitialCluster.calledOnce)
+            const { args: [{ addresses, connect, nonPeerStream }] } = ctx.raft.joinInitialCluster.firstCall
             assert(Array.isArray(addresses))
             assert(typeof connect === 'function')
             assert(nonPeerStream === ctx.nonPeerStream)
@@ -460,7 +470,7 @@ describe('Server', () => {
           context('joining fails', () => {
             beforeEach(ctx => {
               ctx.joiningFailure = Symbol()
-              ctx.server._raft.joinInitialCluster.returns(Promise.reject(ctx.joiningFailure))
+              ctx.raft.joinInitialCluster.returns(Promise.reject(ctx.joiningFailure))
             })
 
             testJoinFailureHandling('joining', ctx => ctx.joiningFailure)
@@ -473,18 +483,19 @@ describe('Server', () => {
           // Get a valid transport stub, then change createTransport() to
           // always return that stub.
           ctx.transport = ctx.createTransport()
-          ctx.createTransportProxy.createTransport = sinon.stub().returns(ctx.transport)
+          ctx.createTransportProxy.createTransport = stub().returns(ctx.transport)
 
           await ctx.server.join()
-          const { args: [{ connect }] } = ctx.server._raft.joinInitialCluster.getCall(0)
+          const { args: [{ connect }] } = ctx.raft.joinInitialCluster.firstCall
           ctx.connect = connect
         })
 
         it('calls the transport’s connect() with the given options', ctx => {
           const opts = Symbol()
           ctx.connect(opts)
-          sinon.assert.calledOnce(ctx.transport.connect)
-          sinon.assert.calledWithExactly(ctx.transport.connect, opts)
+          assert(ctx.transport.connect.calledOnce)
+          const { args: [receivedOpts] } = ctx.transport.connect.firstCall
+          assert(receivedOpts === opts)
         })
 
         context('the transport’s connect() returns a promise', () => {
@@ -527,11 +538,12 @@ describe('Server', () => {
   describe('#append (value)', () => {
     it('calls append() on the raft implementation', ctx => {
       const result = Symbol()
-      ctx.server._raft.append.returns(result)
+      ctx.raft.append.returns(result)
       const value = Symbol()
       assert(ctx.server.append(value) === result)
-      sinon.assert.calledOnce(ctx.server._raft.append)
-      sinon.assert.calledWithExactly(ctx.server._raft.append, value)
+      assert(ctx.raft.append.calledOnce)
+      const { args: [appended] } = ctx.raft.append.firstCall
+      assert(appended === value)
     })
   })
 })

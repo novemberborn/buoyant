@@ -1,6 +1,6 @@
 import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import exposeEvents from '../lib/expose-events'
 
@@ -29,15 +29,16 @@ describe('expose-events', () => {
         beforeEach(ctx => {
           ctx.target = {}
           ctx.emitter = exposeEvents(ctx.target)
-          sinon.stub(ctx.emitter, method)
+          stub(ctx.emitter, method)
         })
 
         it('propagates the arguments to the emitter', ctx => {
           const args = [Symbol(), Symbol()]
           ctx.target[method](...args)
 
-          sinon.assert.calledOnce(ctx.emitter[method])
-          sinon.assert.calledWithExactly(ctx.emitter[method], ...args)
+          assert(ctx.emitter[method].calledOnce)
+          const { args: propagated } = ctx.emitter[method].firstCall
+          assert.deepStrictEqual(propagated, args)
         })
 
         it('returns the thisArg', ctx => {
@@ -68,7 +69,7 @@ describe('expose-events', () => {
       describe(`emitter.${method} (event, listener)`, () => {
         beforeEach(ctx => {
           ctx.event = Symbol
-          ctx.listener = sinon.spy()
+          ctx.listener = spy()
           ctx.emitter[method](ctx.event, ctx.listener)
         })
 
@@ -82,14 +83,14 @@ describe('expose-events', () => {
 
         it('registers the listener for the event', ctx => {
           return emit(ctx.event).then(() => {
-            sinon.assert.calledOnce(ctx.listener)
+            assert(ctx.listener.calledOnce)
           })
         })
 
         describe('the listener', () => {
           it('is called with the target as the thisArg', ctx => {
             return emit(ctx.event).then(() => {
-              sinon.assert.calledOn(ctx.listener, ctx.target)
+              assert(ctx.listener.firstCall.thisValue === ctx.target)
             })
           })
 
@@ -98,7 +99,7 @@ describe('expose-events', () => {
 
             it('is called once per emitted event', ctx => {
               return emit(ctx.event).then(() => {
-                sinon.assert.calledOnce(ctx.listener)
+                assert(ctx.listener.calledOnce)
               })
             })
           })
@@ -112,10 +113,12 @@ describe('expose-events', () => {
             it('is called for each event', ctx => {
               const [first, second] = [Symbol(), Symbol()]
               return emit(ctx.event, first).then(() => {
-                sinon.assert.calledWithExactly(ctx.listener, first)
+                const { args: [value] } = ctx.listener.firstCall
+                assert(value === first)
                 return emit(ctx.event2, second)
               }).then(() => {
-                sinon.assert.calledWithExactly(ctx.listener, second)
+                const { args: [value] } = ctx.listener.secondCall
+                assert(value === second)
               })
             })
           })
@@ -128,7 +131,8 @@ describe('expose-events', () => {
                 return [Symbol(), Symbol(), Symbol()].reduce((prev, arg, n) => {
                   return prev.then(() => emit(ctx.event, arg)).then(() => {
                     assert(ctx.listener.callCount === n + 1)
-                    assert(ctx.listener.getCall(n).calledWithExactly(arg))
+                    const { args: [value] } = ctx.listener.getCall(n)
+                    assert(value === arg)
                   })
                 }, Promise.resolve())
               })
@@ -140,8 +144,9 @@ describe('expose-events', () => {
                 const first = Symbol()
                 return [first, Symbol(), Symbol()].reduce((prev, arg, n) => {
                   return prev.then(() => emit(ctx.event, arg)).then(() => {
-                    sinon.assert.calledOnce(ctx.listener)
-                    sinon.assert.calledWithExactly(ctx.listener, first)
+                    assert(ctx.listener.calledOnce)
+                    const { args: [value] } = ctx.listener.firstCall
+                    assert(value === first)
                   })
                 }, Promise.resolve())
               })
@@ -173,11 +178,11 @@ describe('expose-events', () => {
           context('another listener was registered after the once listener', () => {
             describe('the second listener', () => {
               it('is called after the first', ctx => {
-                const listener2 = sinon.spy()
+                const listener2 = spy()
                 ctx.emitter.on(ctx.event, listener2)
 
                 return emit(ctx.event).then(() => {
-                  sinon.assert.callOrder(ctx.listener, listener2)
+                  assert(ctx.listener.calledBefore(listener2))
                 })
               })
             })
@@ -189,7 +194,7 @@ describe('expose-events', () => {
     describe(`emitter.removeListener (event, listener)`, () => {
       beforeEach(ctx => {
         ctx.event = Symbol
-        ctx.listener = sinon.spy()
+        ctx.listener = spy()
       })
 
       context('listener is not a function', () => {
@@ -207,7 +212,7 @@ describe('expose-events', () => {
 
             ctx.emitter.removeListener(ctx.event, ctx.listener)
             return emit(ctx.event).then(() => {
-              sinon.assert.notCalled(ctx.listener)
+              assert(ctx.listener.notCalled)
             })
           })
         })
@@ -223,31 +228,31 @@ describe('expose-events', () => {
       // Test added for code coverage completeness.
       context('another listener was also registered for the same event', () => {
         it('is not removed', async ctx => {
-          const listener2 = sinon.spy()
+          const listener2 = spy()
           ctx.emitter.on(ctx.event, ctx.listener)
           ctx.emitter.on(ctx.event, listener2)
 
           ctx.emitter.removeListener(ctx.event, ctx.listener)
           await emit(ctx.event)
-          sinon.assert.notCalled(ctx.listener)
-          sinon.assert.calledOnce(listener2)
+          assert(ctx.listener.notCalled)
+          assert(listener2.calledOnce)
         })
       })
     })
 
     describe(`emitter.emit (event, ...params)`, () => {
-      beforeEach(ctx => ctx.listener = sinon.spy())
+      beforeEach(ctx => ctx.listener = spy())
 
       it('starts calling listeners asynchronously', async ctx => {
         ctx.emitter.on(ctx.event, ctx.listener)
 
         ctx.emitter.emit(ctx.event)
-        sinon.assert.notCalled(ctx.listener)
+        assert(ctx.listener.notCalled)
 
         // The emit(...params) helper already does this. nextTick is shown here
         // for clarity.
         await new Promise(resolve => process.nextTick(resolve))
-        sinon.assert.calledOnce(ctx.listener)
+        assert(ctx.listener.calledOnce)
       })
 
       context('listers are only added after emitting (but synchronously)', () => {
@@ -257,7 +262,7 @@ describe('expose-events', () => {
           ctx.emitter.on(ctx.event, ctx.listener)
 
           await p
-          sinon.assert.notCalled(ctx.listener)
+          assert(ctx.listener.notCalled)
         })
       })
 
@@ -266,7 +271,8 @@ describe('expose-events', () => {
         ctx.emitter.on(ctx.event, ctx.listener)
 
         await emit(ctx.event, ...params)
-        sinon.assert.calledWithExactly(ctx.listener, ...params)
+        const { args: allParams } = ctx.listener.firstCall
+        assert.deepStrictEqual(allParams, params)
       })
     })
   })

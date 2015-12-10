@@ -1,11 +1,11 @@
 import { before, beforeEach, describe, it } from '!mocha'
 import assert from 'power-assert'
 import proxyquire from 'proxyquire'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 describe('Peer', () => {
   before(ctx => {
-    ctx.MessageBuffer = sinon.stub()
+    ctx.MessageBuffer = stub()
     ctx.Peer = proxyquire.noCallThru()('../lib/Peer', {
       './MessageBuffer': function (...args) { return ctx.MessageBuffer(...args) }
     })['default']
@@ -14,7 +14,7 @@ describe('Peer', () => {
   beforeEach(ctx => {
     ctx.MessageBuffer.reset()
 
-    ctx.stream = sinon.stub({ read () {}, write () {} })
+    ctx.stream = stub({ read () {}, write () {} })
   })
 
   describe('constructor (address, stream)', () => {
@@ -33,8 +33,9 @@ describe('Peer', () => {
       ctx.MessageBuffer.returns(messages)
 
       const peer = new ctx.Peer({}, ctx.stream)
-      sinon.assert.calledOnce(ctx.MessageBuffer)
-      sinon.assert.calledWithExactly(ctx.MessageBuffer, ctx.stream)
+      assert(ctx.MessageBuffer.calledOnce)
+      const { args: [stream] } = ctx.MessageBuffer.firstCall
+      assert(stream === ctx.stream)
       assert(peer.messages === messages)
     })
   })
@@ -45,8 +46,9 @@ describe('Peer', () => {
       const peer = new ctx.Peer({}, ctx.stream)
       peer.send(message)
 
-      sinon.assert.calledOnce(ctx.stream.write)
-      sinon.assert.calledWithExactly(ctx.stream.write, message)
+      assert(ctx.stream.write.calledOnce)
+      const { args: [written] } = ctx.stream.write.firstCall
+      assert(written === message)
     })
   })
 })

@@ -1,12 +1,12 @@
 import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 import MessageBuffer from '../lib/MessageBuffer'
 
 describe('MessageBuffer', () => {
   beforeEach(ctx => {
-    ctx.stream = sinon.stub({
+    ctx.stream = stub({
       read () {},
       once () {}
     })
@@ -20,7 +20,7 @@ describe('MessageBuffer', () => {
       ctx.stream.read.onCall(0).returns(message)
 
       assert(ctx.buffer.take() === message)
-      sinon.assert.calledOnce(ctx.stream.read)
+      assert(ctx.stream.read.calledOnce)
     })
 
     context('a buffered message is available', () => {
@@ -28,12 +28,12 @@ describe('MessageBuffer', () => {
         ctx.message = Symbol()
         ctx.stream.read.onCall(0).returns(ctx.message)
         ctx.buffer.canTake()
-        sinon.assert.calledOnce(ctx.stream.read)
+        assert(ctx.stream.read.calledOnce)
       })
 
       it('returns that message', ctx => {
         assert(ctx.buffer.take() === ctx.message)
-        sinon.assert.calledOnce(ctx.stream.read)
+        assert(ctx.stream.read.calledOnce)
       })
 
       context('taking another message immediately after', () => {
@@ -43,7 +43,7 @@ describe('MessageBuffer', () => {
           ctx.buffer.take()
 
           assert(ctx.buffer.take() === another)
-          sinon.assert.calledTwice(ctx.stream.read)
+          assert(ctx.stream.read.calledTwice)
         })
       })
     })
@@ -55,7 +55,7 @@ describe('MessageBuffer', () => {
         ctx.stream.read.onCall(0).returns(Symbol())
 
         ctx.buffer.canTake()
-        sinon.assert.calledOnce(ctx.stream.read)
+        assert(ctx.stream.read.calledOnce)
       })
 
       context('a message was read', () => {
@@ -86,7 +86,7 @@ describe('MessageBuffer', () => {
         ctx.stream.read.onCall(0).returns(Symbol())
 
         ctx.buffer.await()
-        sinon.assert.calledOnce(ctx.stream.read)
+        assert(ctx.stream.read.calledOnce)
       })
 
       context('a message was read', () => {
@@ -116,14 +116,16 @@ describe('MessageBuffer', () => {
       context('no message was read', () => {
         it('listens for the readable event', ctx => {
           ctx.buffer.await()
-          sinon.assert.calledOnce(ctx.stream.once)
-          sinon.assert.calledWithExactly(ctx.stream.once, 'readable', sinon.match.func)
+          assert(ctx.stream.once.calledOnce)
+          const { args: [event, listener] } = ctx.stream.once.firstCall
+          assert(event === 'readable')
+          assert(typeof listener === 'function')
         })
 
         context('the readable event fires', () => {
           it('fulfills the returned promise', async ctx => {
             const p = ctx.buffer.await()
-            const { args: [, fire] } = ctx.stream.once.getCall(0)
+            const { args: [, fire] } = ctx.stream.once.firstCall
 
             fire()
             assert(await p === undefined)
@@ -140,7 +142,7 @@ describe('MessageBuffer', () => {
           context('after the returned promise is fulfilled', () => {
             it('returns a different promise', async ctx => {
               const p = ctx.buffer.await()
-              const { args: [, fire] } = ctx.stream.once.getCall(0)
+              const { args: [, fire] } = ctx.stream.once.firstCall
 
               fire()
               await p

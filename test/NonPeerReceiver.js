@@ -1,14 +1,14 @@
 import { before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import proxyquire from 'proxyquire'
-import sinon from 'sinon'
+import { stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
 describe('NonPeerReceiver', () => {
   before(ctx => {
-    ctx.MessageBuffer = sinon.stub()
-    ctx.Peer = sinon.stub()
+    ctx.MessageBuffer = stub()
+    ctx.Peer = stub()
     ctx.NonPeerReceiver = proxyquire.noCallThru()('../lib/NonPeerReceiver', {
       './MessageBuffer': function (...args) { return ctx.MessageBuffer(...args) },
       './Peer': function (...args) { return ctx.Peer(...args) }
@@ -19,8 +19,8 @@ describe('NonPeerReceiver', () => {
     ctx.MessageBuffer.reset()
     ctx.Peer.reset()
 
-    ctx.stream = sinon.stub({ read () {} })
-    ctx.connect = sinon.stub().returns(new Promise(() => {}))
+    ctx.stream = stub({ read () {} })
+    ctx.connect = stub().returns(new Promise(() => {}))
   })
 
   describe('constructor (stream, connect)', () => {
@@ -29,8 +29,9 @@ describe('NonPeerReceiver', () => {
       ctx.MessageBuffer.returns(messages)
 
       const receiver = new ctx.NonPeerReceiver(ctx.stream, ctx.connect)
-      sinon.assert.calledOnce(ctx.MessageBuffer)
-      sinon.assert.calledWithExactly(ctx.MessageBuffer, ctx.stream)
+      assert(ctx.MessageBuffer.calledOnce)
+      const { args: [stream] } = ctx.MessageBuffer.firstCall
+      assert(stream === ctx.stream)
       assert(receiver.messages === messages)
     })
   })
@@ -41,8 +42,8 @@ describe('NonPeerReceiver', () => {
       const peerAddress = Symbol()
       receiver.createPeer(peerAddress)
 
-      sinon.assert.calledOnce(ctx.connect)
-      const { args: [{ address, writeOnly }] } = ctx.connect.getCall(0)
+      assert(ctx.connect.calledOnce)
+      const { args: [{ address, writeOnly }] } = ctx.connect.firstCall
       assert(address === peerAddress)
       assert(writeOnly === true)
     })
@@ -58,7 +59,9 @@ describe('NonPeerReceiver', () => {
 
         const receiver = new ctx.NonPeerReceiver(ctx.stream, ctx.connect)
         assert(await receiver.createPeer(peerAddress) === peer)
-        sinon.assert.calledWithExactly(ctx.Peer, peerAddress, stream)
+        const { args: [addressForPeer, streamForPeer] } = ctx.Peer.lastCall
+        assert(addressForPeer === peerAddress)
+        assert(streamForPeer === stream)
       })
     })
 

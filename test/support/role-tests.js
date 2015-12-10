@@ -1,15 +1,15 @@
 import { before, beforeEach, context, it } from '!mocha'
 import assert from 'power-assert'
 import proxyquire from 'proxyquire'
-import sinon from 'sinon'
+import { spy, stub } from 'sinon'
 
 import InputConsumer from '../../lib/InputConsumer'
 import Scheduler from '../../lib/Scheduler'
 
 export function setupConstructors (roleSource) {
   before(ctx => {
-    ctx.InputConsumer = sinon.spy(function (...args) { return new InputConsumer(...args) })
-    ctx.Scheduler = sinon.spy(function (...args) { return new Scheduler(...args) })
+    ctx.InputConsumer = spy(function (...args) { return new InputConsumer(...args) })
+    ctx.Scheduler = spy(function (...args) { return new Scheduler(...args) })
 
     const Role = proxyquire.noCallThru()(roleSource, {
       '../InputConsumer': function (...args) { return ctx.InputConsumer(...args) },
@@ -34,8 +34,9 @@ export function testFollowerConversion (label, getRole) {
 
     it('sets the term to that of the message', ctx => {
       ctx.role.handleMessage(ctx.peer, ctx.message)
-      sinon.assert.calledOnce(ctx.state.setTerm)
-      sinon.assert.calledWithExactly(ctx.state.setTerm, 2)
+      assert(ctx.state.setTerm.calledOnce)
+      const { args: [term] } = ctx.state.setTerm.firstCall
+      assert(term === 2)
     })
 
     it('returns a promise', ctx => {
@@ -52,15 +53,17 @@ export function testFollowerConversion (label, getRole) {
         persisted()
 
         await Promise.resolve()
-        sinon.assert.notCalled(ctx.convertToFollower)
+        assert(ctx.convertToFollower.notCalled)
       })
     })
 
     context(`the ${label} was not destroyed while persisting the state`, () => {
       it('converts to follower', async ctx => {
         await ctx.role.handleMessage(ctx.peer, ctx.message)
-        sinon.assert.calledOnce(ctx.convertToFollower)
-        sinon.assert.calledWithMatch(ctx.convertToFollower, [sinon.match.same(ctx.peer), sinon.match.same(ctx.message)])
+        assert(ctx.convertToFollower.calledOnce)
+        const { args: [[peer, message]] } = ctx.convertToFollower.firstCall
+        assert(peer === ctx.peer)
+        assert(message === ctx.message)
       })
     })
   })
@@ -69,9 +72,9 @@ export function testFollowerConversion (label, getRole) {
 export function testInputConsumerDestruction (getRole) {
   it('stops the input consumer', ctx => {
     const role = getRole(ctx)
-    const spy = sinon.spy(role.inputConsumer, 'stop')
+    spy(role.inputConsumer, 'stop')
     role.destroy()
-    sinon.assert.calledOnce(spy)
+    assert(role.inputConsumer.stop.calledOnce)
   })
 }
 
@@ -80,8 +83,8 @@ export function testInputConsumerInstantiation (label, getRole, getCrashHandler)
     const role = getRole(ctx)
 
     assert(role.inputConsumer instanceof InputConsumer)
-    sinon.assert.calledOnce(ctx.InputConsumer)
-    const { args: [{ peers, nonPeerReceiver, scheduler, handleMessage, crashHandler }] } = ctx.InputConsumer.getCall(0)
+    assert(ctx.InputConsumer.calledOnce)
+    const { args: [{ peers, nonPeerReceiver, scheduler, handleMessage, crashHandler }] } = ctx.InputConsumer.firstCall
     assert(peers === ctx.peers)
     assert(nonPeerReceiver === ctx.nonPeerReceiver)
     assert(scheduler === role.scheduler)
@@ -97,12 +100,14 @@ export function testInputConsumerInstantiation (label, getRole, getCrashHandler)
       ctx.peer.messages.canTake.onCall(0).returns(true)
 
       const role = getRole(ctx)
-      let handleMessage = sinon.stub(role, 'handleMessage')
+      let handleMessage = stub(role, 'handleMessage')
       role.inputConsumer.start()
 
-      sinon.assert.calledOnce(handleMessage)
-      sinon.assert.calledOn(handleMessage, role)
-      sinon.assert.calledWithExactly(handleMessage, ctx.peer, message)
+      assert(handleMessage.calledOnce)
+      assert(handleMessage.calledOn(role))
+      const { args: [peer, handledMessage] } = handleMessage.firstCall
+      assert(peer === ctx.peer)
+      assert(handledMessage === message)
     })
   })
 }
@@ -110,9 +115,9 @@ export function testInputConsumerInstantiation (label, getRole, getCrashHandler)
 export function testInputConsumerStart (getRole) {
   it('starts the input consumer', ctx => {
     const role = getRole(ctx)
-    const spy = sinon.spy(role.inputConsumer, 'start')
+    spy(role.inputConsumer, 'start')
     role.start()
-    sinon.assert.calledOnce(spy)
+    assert(role.inputConsumer.start.calledOnce)
   })
 }
 
@@ -121,18 +126,21 @@ export function testMessageHandlerMapping (getRoleAndPeer, mapping) {
     context(`the message type is ${label}`, () => {
       it(`calls ${method} with the peer, the message’s term, and the message itself`, ctx => {
         const [role, peer] = getRoleAndPeer(ctx)
-        const stub = sinon.stub(role, method)
+        const methodStub = stub(role, method)
         const message = { type, term: 1 }
         role.handleMessage(peer, message)
 
-        sinon.assert.calledOnce(stub)
-        sinon.assert.calledWithExactly(stub, peer, message.term, message)
+        assert(methodStub.calledOnce)
+        const { args: [mappedPeer, mappedTerm, mappedMessage] } = methodStub.firstCall
+        assert(mappedPeer === peer)
+        assert(mappedTerm === message.term)
+        assert(mappedMessage === message)
       })
 
       it(`returns the result of calling ${method}`, ctx => {
         const [role, peer] = getRoleAndPeer(ctx)
         const result = Symbol()
-        sinon.stub(role, method).returns(result)
+        stub(role, method).returns(result)
         assert(role.handleMessage(peer, { type, term: 1 }) === result)
       })
     })
@@ -149,9 +157,9 @@ export function testMessageHandlerMapping (getRoleAndPeer, mapping) {
 export function testSchedulerDestruction (getRole) {
   it('aborts the scheduler', ctx => {
     const role = getRole(ctx)
-    const spy = sinon.spy(role.scheduler, 'abort')
+    spy(role.scheduler, 'abort')
     role.destroy()
-    sinon.assert.calledOnce(spy)
+    assert(role.scheduler.abort.calledOnce)
   })
 }
 
@@ -160,8 +168,8 @@ export function testSchedulerInstantiation (getRole, getCrashHandler) {
     const role = getRole(ctx)
 
     assert(role.scheduler instanceof Scheduler)
-    sinon.assert.calledOnce(ctx.Scheduler)
-    const { args: [crashHandler] } = ctx.Scheduler.getCall(0)
+    assert(ctx.Scheduler.calledOnce)
+    const { args: [crashHandler] } = ctx.Scheduler.firstCall
     assert(crashHandler === getCrashHandler(ctx))
   })
 }
