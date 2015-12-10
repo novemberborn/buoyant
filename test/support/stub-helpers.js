@@ -44,6 +44,7 @@ export function stubState () {
     _votedFor () {},
     get votedFor () { return this._votedFor() },
     nextTerm () {},
+    replace () {},
     setTerm () {},
     setTermAndVote () {}
   })
