@@ -1,8 +1,7 @@
 import { resolve } from 'path'
 
-import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
+import { afterEach, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import { install as installClock } from 'lolex'
 import { spy, stub } from 'sinon'
 
 import {
@@ -12,7 +11,7 @@ import {
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
 } from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
 
 import {
   AppendEntries, RejectEntries,
@@ -20,9 +19,6 @@ import {
 } from '../lib/symbols'
 
 describe('roles/Candidate', () => {
-  before(ctx => ctx.clock = installClock(0, ['setTimeout', 'clearTimeout']))
-  after(ctx => ctx.clock.uninstall())
-
   setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
 
   beforeEach(ctx => {
@@ -36,7 +32,10 @@ describe('roles/Candidate', () => {
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
     const state = ctx.state = stubState()
 
-    ctx.candidate = new ctx.Candidate({ becomeLeader, convertToFollower, crashHandler, electionTimeout, log, nonPeerReceiver, ourId, peers, state })
+    const { clock, timers } = stubTimers()
+    ctx.clock = clock
+
+    ctx.candidate = new ctx.Candidate({ becomeLeader, convertToFollower, crashHandler, electionTimeout, log, nonPeerReceiver, ourId, peers, state, timers })
   })
 
   afterEach(ctx => !ctx.candidate.destroyed && ctx.candidate.destroy())

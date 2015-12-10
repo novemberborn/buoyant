@@ -5,6 +5,7 @@ import Leader from './roles/Leader'
 import Log from './Log'
 import LogEntryApplier from './LogEntryApplier'
 import State from './State'
+import Timers from './Timers'
 
 import NonPeerReceiver from './NonPeerReceiver'
 import Peer from './Peer'
@@ -42,6 +43,8 @@ export default class Raft {
     this.currentRole = null
     this.nonPeerReceiver = null
     this.peers = null
+
+    this.timers = new Timers()
   }
 
   replaceState (state) {
@@ -115,7 +118,7 @@ export default class Raft {
       this.currentRole.destroy()
     }
 
-    const { crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state } = this
+    const { crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state, timers } = this
     const role = this.currentRole = new Leader({
       convertToCandidate: this.convertToCandidate.bind(this),
       convertToFollower: this.convertToFollower.bind(this),
@@ -124,7 +127,8 @@ export default class Raft {
       log,
       nonPeerReceiver,
       peers,
-      state
+      state,
+      timers
     })
     this.currentRole.start()
 
@@ -142,7 +146,7 @@ export default class Raft {
       this.currentRole.destroy()
     }
 
-    const { crashHandler, electionTimeout, id: ourId, log, nonPeerReceiver, peers, state } = this
+    const { crashHandler, electionTimeout, id: ourId, log, nonPeerReceiver, peers, state, timers } = this
     const role = this.currentRole = new Candidate({
       becomeLeader: this.becomeLeader.bind(this),
       convertToFollower: this.convertToFollower.bind(this),
@@ -152,7 +156,8 @@ export default class Raft {
       nonPeerReceiver,
       ourId,
       peers,
-      state
+      state,
+      timers
     })
     this.currentRole.start()
 
@@ -169,7 +174,7 @@ export default class Raft {
       this.currentRole.destroy()
     }
 
-    const { crashHandler, electionTimeout, log, nonPeerReceiver, peers, state } = this
+    const { crashHandler, electionTimeout, log, nonPeerReceiver, peers, state, timers } = this
     const role = this.currentRole = new Follower({
       convertToCandidate: this.convertToCandidate.bind(this),
       crashHandler,
@@ -177,7 +182,8 @@ export default class Raft {
       log,
       nonPeerReceiver,
       peers,
-      state
+      state,
+      timers
     })
     // The server can convert to follower state based on an incoming message.
     // Pass the message along so the follower can "replay" it.
