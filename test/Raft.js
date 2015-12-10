@@ -77,6 +77,25 @@ describe('Raft', () => {
       const { args: [emitted] } = ctx.emitEvent.firstCall
       assert(emitted === event)
     })
+
+    context(`the role is changed before the ${event} event is emitted`, () => {
+      it('does not emit the event', ctx => {
+        Object.defineProperty(ctx.raft, 'currentRole', {
+          get () { return this._role || null },
+          set (role) {
+            this._role = role
+            if (role) {
+              role.start = () => {
+                ctx.raft.currentRole = null
+              }
+            }
+          }
+        })
+
+        ctx.raft[method]()
+        assert(ctx.emitEvent.notCalled)
+      })
+    })
   }
 
   const startsRole = (method, role) => {
