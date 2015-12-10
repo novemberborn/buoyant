@@ -9,9 +9,9 @@ import {
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
-import { getReason } from './support/utils'
+} from '../support/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from '../support/stub-helpers'
+import { getReason } from '../support/utils'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,

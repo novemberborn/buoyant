@@ -1,1 +1,2 @@
 --require test/support/bootstrap
+test/unit/*.js

@@ -3,7 +3,7 @@ import assert from 'power-assert'
 import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import { getReason } from './support/utils'
+import { getReason } from '../support/utils'
 
 import {
   AppendEntries, AcceptEntries, RejectEntries,

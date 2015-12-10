@@ -3,7 +3,7 @@ import assert from 'power-assert'
 import proxyquire from '!proxyquire'
 import { stub } from 'sinon'
 
-import { getReason } from './support/utils'
+import { getReason } from '../support/utils'
 
 describe('NonPeerReceiver', () => {
   before(ctx => {

@@ -3,8 +3,8 @@ import assert from 'power-assert'
 import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import { stubState } from './support/stub-helpers'
-import { getReason } from './support/utils'
+import { stubState } from '../support/stub-helpers'
+import { getReason } from '../support/utils'
 
 describe('Raft', () => {
   before(ctx => {

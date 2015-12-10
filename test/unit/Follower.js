@@ -8,8 +8,8 @@ import {
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
+} from '../support/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from '../support/stub-helpers'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,

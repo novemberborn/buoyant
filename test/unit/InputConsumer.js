@@ -2,7 +2,7 @@ import { afterEach, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { stub } from 'sinon'
 
-import { stubMessages, stubPeer } from './support/stub-helpers'
+import { stubMessages, stubPeer } from '../support/stub-helpers'
 
 import InputConsumer from '🏠/lib/InputConsumer'
 
