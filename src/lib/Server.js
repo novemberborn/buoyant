@@ -6,32 +6,32 @@ import Raft from './Raft'
 // public interface for interacting with the cluster.
 export default class Server {
   constructor ({
-    id,
     address,
+    applyEntry,
+    crashHandler,
+    createTransport,
     electionTimeoutWindow,
     heartbeatInterval,
-    createTransport,
-    persistState,
+    id,
     persistEntries,
-    applyEntry,
-    crashHandler
+    persistState
   }) {
     const emitter = exposeEvents(this)
 
     const raft = new Raft({
-      id,
-      electionTimeoutWindow,
-      heartbeatInterval,
-      persistState,
-      persistEntries,
       applyEntry,
       crashHandler,
-      emitEvent: emitter.emit.bind(emitter)
+      electionTimeoutWindow,
+      emitEvent: emitter.emit.bind(emitter),
+      heartbeatInterval,
+      id,
+      persistEntries,
+      persistState
     })
 
     Object.defineProperties(this, {
-      id: { value: id, enumerable: true },
       address: { value: address, enumerable: true },
+      id: { value: id, enumerable: true },
 
       _createTransport: { value: createTransport },
       _raft: { value: raft },

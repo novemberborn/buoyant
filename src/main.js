@@ -11,18 +11,30 @@ export { symbols, Address, Entry }
 // various parameters.
 export function createServer ({
   address,
+  applyEntry,
+  crashHandler,
+  createTransport,
   electionTimeoutWindow,
   heartbeatInterval,
-  createTransport,
-  persistState,
   persistEntries,
-  applyEntry,
-  crashHandler
+  persistState
 }) {
   if (typeof address === 'string') {
     address = new Address(address)
   } else if (!Address.is(address)) {
     throw new TypeError("Parameter 'address' must be a string or an Address instance")
+  }
+
+  if (typeof applyEntry !== 'function') {
+    throw new TypeError(`Parameter 'applyEntry' must be a function, not ${typeof applyEntry}`)
+  }
+
+  if (typeof crashHandler !== 'function') {
+    throw new TypeError(`Parameter 'crashHandler' must be a function, not ${typeof crashHandler}`)
+  }
+
+  if (typeof createTransport !== 'function') {
+    throw new TypeError(`Parameter 'createTransport' must be a function, not ${typeof createTransport}`)
   }
 
   try {
@@ -44,40 +56,29 @@ export function createServer ({
     throw new TypeError("Parameter 'heartbeatInterval' must be an integer, greater than zero")
   }
 
-  if (typeof createTransport !== 'function') {
-    throw new TypeError(`Parameter 'createTransport' must be a function, not ${typeof createTransport}`)
+  if (typeof persistEntries !== 'function') {
+    throw new TypeError(`Parameter 'persistEntries' must be a function, not ${typeof persistEntries}`)
   }
 
   if (typeof persistState !== 'function') {
     throw new TypeError(`Parameter 'persistState' must be a function, not ${typeof persistState}`)
   }
-  if (typeof persistEntries !== 'function') {
-    throw new TypeError(`Parameter 'persistEntries' must be a function, not ${typeof persistEntries}`)
-  }
-
-  if (typeof applyEntry !== 'function') {
-    throw new TypeError(`Parameter 'applyEntry' must be a function, not ${typeof applyEntry}`)
-  }
-
-  if (typeof crashHandler !== 'function') {
-    throw new TypeError(`Parameter 'crashHandler' must be a function, not ${typeof crashHandler}`)
-  }
 
   return new Server({
-    id: address.serverId,
     address,
-    electionTimeoutWindow,
-    heartbeatInterval,
-    createTransport,
-    persistState (state) {
-      return new Promise(resolve => resolve(persistState(state)))
-    },
-    persistEntries (entries, lastApplied) {
-      return new Promise(resolve => resolve(persistEntries(entries, lastApplied)))
-    },
     applyEntry (entry) {
       return new Promise(resolve => resolve(applyEntry(entry)))
     },
-    crashHandler
+    crashHandler,
+    createTransport,
+    electionTimeoutWindow,
+    heartbeatInterval,
+    id: address.serverId,
+    persistEntries (entries, lastApplied) {
+      return new Promise(resolve => resolve(persistEntries(entries, lastApplied)))
+    },
+    persistState (state) {
+      return new Promise(resolve => resolve(persistState(state)))
+    }
   })
 }

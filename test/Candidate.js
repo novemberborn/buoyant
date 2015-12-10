@@ -26,17 +26,17 @@ describe('roles/Candidate', () => {
   setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
 
   beforeEach(ctx => {
-    const ourId = ctx.ourId = Symbol()
-    const electionTimeout = ctx.electionTimeout = 10
-    const state = ctx.state = stubState()
-    const log = ctx.log = stubLog()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = stub()
-    const convertToFollower = ctx.convertToFollower = stub()
     const becomeLeader = ctx.becomeLeader = stub()
+    const convertToFollower = ctx.convertToFollower = stub()
+    const crashHandler = ctx.crashHandler = stub()
+    const electionTimeout = ctx.electionTimeout = 10
+    const log = ctx.log = stubLog()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const ourId = ctx.ourId = Symbol()
+    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
+    const state = ctx.state = stubState()
 
-    ctx.candidate = new ctx.Candidate({ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader })
+    ctx.candidate = new ctx.Candidate({ becomeLeader, convertToFollower, crashHandler, electionTimeout, log, nonPeerReceiver, ourId, peers, state })
   })
 
   afterEach(ctx => !ctx.candidate.destroyed && ctx.candidate.destroy())

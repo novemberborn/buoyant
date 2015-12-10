@@ -3,16 +3,13 @@ import Entry from './Entry'
 // Manages the log for each server. Contains all entries. Responsible for
 // persisting new entries and committing them to the state machine.
 export default class Log {
-  constructor ({
-    persistEntries,
-    applier
-  }) {
+  constructor ({ applier, persistEntries }) {
     this.entries = new Map()
     this.lastIndex = 0
     this.lastTerm = 0
 
-    this.persistEntries = persistEntries
     this.applier = applier
+    this.persistEntries = persistEntries
   }
 
   close () {
