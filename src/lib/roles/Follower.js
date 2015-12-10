@@ -20,18 +20,20 @@ export default class Follower {
     log,
     nonPeerReceiver,
     peers,
-    state
+    state,
+    timers
   }) {
     this.convertToCandidate = convertToCandidate
     this.electionTimeout = electionTimeout
     this.log = log
     this.state = state
+    this.timers = timers
 
     this.commitIndex = 0
     this.destroyed = false
     this.ignoreNextElectionTimeout = false
+    this.intervalObject = null
     this.scheduledTimeoutHandler = false
-    this.timer = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
@@ -44,7 +46,7 @@ export default class Follower {
   }
 
   start (replayMessage) {
-    this.timer = setInterval(() => this.maybeStartElection(), this.electionTimeout)
+    this.intervalObject = this.timers.setInterval(() => this.maybeStartElection(), this.electionTimeout)
 
     if (replayMessage) {
       this.scheduler.asap(null, () => this.handleMessage(...replayMessage))
@@ -56,7 +58,7 @@ export default class Follower {
 
   destroy () {
     this.destroyed = true
-    clearInterval(this.timer)
+    this.timers.clearInterval(this.intervalObject)
     this.inputConsumer.stop()
     this.scheduler.abort()
   }

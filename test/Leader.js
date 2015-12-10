@@ -12,7 +12,7 @@ import {
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
 } from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
 import { getReason } from './support/utils'
 
 import {
@@ -39,6 +39,9 @@ describe('roles/Leader', () => {
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
     const state = ctx.state = stubState()
 
+    const { clock, timers } = stubTimers()
+    ctx.clock = clock
+
     // Prime the log so nextIndex from each peer is initially divergent from its
     // matchIndex.
     log._lastIndex.returns(2)
@@ -59,7 +62,7 @@ describe('roles/Leader', () => {
     // Set the currentTerm for the leader.
     state._currentTerm.returns(2)
 
-    ctx.leader = new ctx.Leader({ convertToCandidate, convertToFollower, crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state })
+    ctx.leader = new ctx.Leader({ convertToCandidate, convertToFollower, crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state, timers })
   })
 
   afterEach(ctx => !ctx.leader.destroyed && ctx.leader.destroy())

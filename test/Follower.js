@@ -11,7 +11,7 @@ import {
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
 } from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,
@@ -35,7 +35,10 @@ describe('roles/Follower', () => {
     const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
     const state = ctx.state = stubState()
 
-    ctx.follower = new ctx.Follower({ convertToCandidate, crashHandler, electionTimeout, log, nonPeerReceiver, peers, state })
+    const { clock, timers } = stubTimers()
+    ctx.clock = clock
+
+    ctx.follower = new ctx.Follower({ convertToCandidate, crashHandler, electionTimeout, log, nonPeerReceiver, peers, state, timers })
   })
 
   afterEach(ctx => !ctx.follower.destroyed && ctx.follower.destroy())
