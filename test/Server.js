@@ -5,8 +5,8 @@ import { spy, stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
-import exposeEvents from '../lib/expose-events'
-import Address from '../lib/Address'
+import exposeEvents from '🏠/lib/expose-events'
+import Address from '🏠/lib/Address'
 
 describe('Server', () => {
   before(ctx => {

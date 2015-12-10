@@ -4,7 +4,7 @@ import { stub } from 'sinon'
 
 import { getReason } from './support/utils'
 
-import State from '../lib/State'
+import State from '🏠/lib/State'
 
 describe('State', () => {
   beforeEach(ctx => {

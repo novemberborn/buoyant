@@ -16,7 +16,7 @@ import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './suppor
 import {
   AppendEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
+} from '🏠/lib/symbols'
 
 describe('roles/Candidate', () => {
   setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))

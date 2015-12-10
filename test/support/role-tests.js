@@ -3,8 +3,8 @@ import assert from 'power-assert'
 import proxyquire from 'proxyquire'
 import { spy, stub } from 'sinon'
 
-import InputConsumer from '../../lib/InputConsumer'
-import Scheduler from '../../lib/Scheduler'
+import InputConsumer from '🏠/lib/InputConsumer'
+import Scheduler from '🏠/lib/Scheduler'
 
 export function setupConstructors (roleSource) {
   before(ctx => {

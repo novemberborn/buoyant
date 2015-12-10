@@ -9,9 +9,9 @@ import {
   AppendEntries, AcceptEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote,
   Noop
-} from '../lib/symbols'
-import Address from '../lib/Address'
-import Entry from '../lib/Entry'
+} from '🏠/lib/symbols'
+import Address from '🏠/lib/Address'
+import Entry from '🏠/lib/Entry'
 
 describe('main', () => {
   before(ctx => {

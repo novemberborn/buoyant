@@ -2,7 +2,7 @@ import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { spy, stub } from 'sinon'
 
-import Scheduler from '../lib/Scheduler'
+import Scheduler from '🏠/lib/Scheduler'
 
 function remainsPending (promise) {
   return new Promise((resolve, reject) => {

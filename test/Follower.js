@@ -16,9 +16,9 @@ import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './suppor
 import {
   AppendEntries, RejectEntries, AcceptEntries,
   RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
+} from '🏠/lib/symbols'
 
-import Entry from '../lib/Entry'
+import Entry from '🏠/lib/Entry'
 
 describe('roles/Follower', () => {
   before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))

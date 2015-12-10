@@ -3,7 +3,7 @@ import assert from 'power-assert'
 import { install as installClock } from 'lolex'
 import { spy } from 'sinon'
 
-import Timers from '../lib/Timers'
+import Timers from '🏠/lib/Timers'
 
 describe('Timers', () => {
   before(ctx => ctx.clock = installClock(0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout']))

@@ -19,9 +19,9 @@ import {
   AppendEntries, RejectEntries, AcceptEntries,
   RequestVote, DenyVote,
   Noop
-} from '../lib/symbols'
+} from '🏠/lib/symbols'
 
-import Entry from '../lib/Entry'
+import Entry from '🏠/lib/Entry'
 
 describe('roles/Leader', () => {
   before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))

@@ -2,7 +2,7 @@ import { before, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { stub } from 'sinon'
 
-import Address from '../lib/Address'
+import Address from '🏠/lib/Address'
 
 describe('Address', () => {
   describe('constructor (url)', () => {

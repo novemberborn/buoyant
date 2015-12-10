@@ -4,7 +4,7 @@ import { stub } from 'sinon'
 
 import { stubMessages, stubPeer } from './support/stub-helpers'
 
-import InputConsumer from '../lib/InputConsumer'
+import InputConsumer from '🏠/lib/InputConsumer'
 
 describe('InputConsumer', () => {
   // Sets up the first call of the scheduler.asap() stub so it returns a promise

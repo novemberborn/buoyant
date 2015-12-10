@@ -17,10 +17,19 @@ sourceMapSupport.install({
   }
 })
 
+// Rewrite paths starting with `🏠/`, as well as the `🏠` path, to the package
+// root.
+const homeDir = path.resolve(__dirname, '..', '..')
 // Resolve the `!mocha` source to the wrapper module.
 const mochaWrapperSource = path.join(__dirname, 'mocha-wrapper.js')
 function resolveModuleSource (source, filename) {
-  return source === '!mocha' ? mochaWrapperSource : source
+  if (source.startsWith('🏠/') || source === '🏠') {
+    return path.join(homeDir, source.slice(3)) // 2 bytes for the 🏠 character!
+  } else if (source === '!mocha') {
+    return mochaWrapperSource
+  } else {
+    return source
+  }
 }
 
 const babel = require('babel-core')
