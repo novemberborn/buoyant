@@ -3,7 +3,11 @@
 // except that a listener can only be registered once for the same event.
 
 // The returned emitter has an `emit()` method that is not exposed on the
-// `target`. Events are emitted in a next tick.
+// `target`. Events are emitted synchronously, however if a listener throws an
+// exception no remaining listeners are invoked. The error is rethrown
+// asynchronously.
+import process from './process'
+
 export default function exposeEvents (target) {
   const emitter = new Emitter(target)
 
@@ -86,17 +90,21 @@ class Emitter {
       return
     }
 
-    process.nextTick(() => {
-      for (const [listener, fireOnce] of listeners) {
+    for (const [listener, fireOnce] of listeners) {
+      try {
         listener.call(this.context, ...params)
+      } catch (err) {
+        process.nextTick(() => { throw err })
+        break
+      } finally {
         if (fireOnce) {
           listeners.delete(listener)
         }
       }
+    }
 
-      if (!listeners.size) {
-        this.registry.delete(event)
-      }
-    })
+    if (!listeners.size) {
+      this.registry.delete(event)
+    }
   }
 }
