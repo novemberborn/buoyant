@@ -27,15 +27,15 @@ describe('roles/Follower', () => {
   setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
 
   beforeEach(ctx => {
-    const electionTimeout = ctx.electionTimeout = 10
-    const state = ctx.state = stubState()
-    const log = ctx.log = stubLog()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = stub()
     const convertToCandidate = ctx.convertToCandidate = stub()
+    const crashHandler = ctx.crashHandler = stub()
+    const electionTimeout = ctx.electionTimeout = 10
+    const log = ctx.log = stubLog()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
+    const state = ctx.state = stubState()
 
-    ctx.follower = new ctx.Follower({ electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate })
+    ctx.follower = new ctx.Follower({ convertToCandidate, crashHandler, electionTimeout, log, nonPeerReceiver, peers, state })
   })
 
   afterEach(ctx => !ctx.follower.destroyed && ctx.follower.destroy())

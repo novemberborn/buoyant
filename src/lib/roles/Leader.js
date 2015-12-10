@@ -16,25 +16,21 @@ const handlerMap = Object.create(null, {
 // Implements leader behavior according to Raft.
 export default class Leader {
   constructor ({
-    heartbeatInterval,
-    state,
-    log,
-    peers,
-    nonPeerReceiver,
-    crashHandler,
     convertToCandidate,
-    convertToFollower
+    convertToFollower,
+    crashHandler,
+    heartbeatInterval,
+    log,
+    nonPeerReceiver,
+    peers,
+    state
   }) {
-    this.heartbeatInterval = heartbeatInterval
-    this.state = state
-    this.log = log
-    this.peers = peers
     this.convertToCandidate = convertToCandidate
     this.convertToFollower = convertToFollower
-
-    this.destroyed = false
-    this.commitIndex = 0
-    this.pendingApplication = []
+    this.heartbeatInterval = heartbeatInterval
+    this.log = log
+    this.peers = peers
+    this.state = state
 
     // Track Raft's `nextIndex` and `matchIndex` values for each peer.
     this.peerState = peers.reduce((map, peer) => {
@@ -43,16 +39,20 @@ export default class Leader {
         matchIndex: 0
       })
     }, new Map())
+
+    this.commitIndex = 0
+    this.destroyed = false
+    this.pendingApplication = []
     this.skipNextHeartbeat = false
     this.timer = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
-      peers,
-      nonPeerReceiver,
-      scheduler: this.scheduler,
+      crashHandler,
       handleMessage: (peer, message) => this.handleMessage(peer, message),
-      crashHandler
+      nonPeerReceiver,
+      peers,
+      scheduler: this.scheduler
     })
   }
 

@@ -13,17 +13,17 @@
 // and the message are passed to `handleMessage()`.
 export default class InputConsumer {
   constructor ({
-    peers,
-    nonPeerReceiver,
-    scheduler,
+    crashHandler,
     handleMessage,
-    crashHandler
+    nonPeerReceiver,
+    peers,
+    scheduler
   }) {
-    this.peers = peers
-    this.nonPeerReceiver = nonPeerReceiver
-    this.scheduler = scheduler
-    this.handleMessage = handleMessage
     this.crashHandler = crashHandler
+    this.handleMessage = handleMessage
+    this.nonPeerReceiver = nonPeerReceiver
+    this.peers = peers
+    this.scheduler = scheduler
 
     this.buffers = [nonPeerReceiver.messages].concat(peers.map(peer => peer.messages))
     this.stopped = false

@@ -30,14 +30,14 @@ describe('roles/Leader', () => {
   setupConstructors(resolve(__dirname, '../lib/roles/Leader'))
 
   beforeEach(ctx => {
-    const heartbeatInterval = ctx.heartbeatInterval = 10
-    const state = ctx.state = stubState()
-    const log = ctx.log = stubLog()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = stub()
     const convertToCandidate = ctx.convertToCandidate = stub()
     const convertToFollower = ctx.convertToFollower = stub()
+    const crashHandler = ctx.crashHandler = stub()
+    const heartbeatInterval = ctx.heartbeatInterval = 10
+    const log = ctx.log = stubLog()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
+    const state = ctx.state = stubState()
 
     // Prime the log so nextIndex from each peer is initially divergent from its
     // matchIndex.
@@ -59,7 +59,7 @@ describe('roles/Leader', () => {
     // Set the currentTerm for the leader.
     state._currentTerm.returns(2)
 
-    ctx.leader = new ctx.Leader({ heartbeatInterval, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate, convertToFollower })
+    ctx.leader = new ctx.Leader({ convertToCandidate, convertToFollower, crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state })
   })
 
   afterEach(ctx => !ctx.leader.destroyed && ctx.leader.destroy())

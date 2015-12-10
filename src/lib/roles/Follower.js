@@ -14,33 +14,32 @@ const handlerMap = Object.create(null, {
 // Implements follower behavior according to Raft.
 export default class Follower {
   constructor ({
-    electionTimeout,
-    state,
-    log,
-    peers,
-    nonPeerReceiver,
+    convertToCandidate,
     crashHandler,
-    convertToCandidate
+    electionTimeout,
+    log,
+    nonPeerReceiver,
+    peers,
+    state
   }) {
-    this.electionTimeout = electionTimeout
-    this.state = state
-    this.log = log
     this.convertToCandidate = convertToCandidate
+    this.electionTimeout = electionTimeout
+    this.log = log
+    this.state = state
 
-    this.destroyed = false
     this.commitIndex = 0
-
+    this.destroyed = false
     this.ignoreNextElectionTimeout = false
     this.scheduledTimeoutHandler = false
     this.timer = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
-      peers,
-      nonPeerReceiver,
-      scheduler: this.scheduler,
+      crashHandler,
       handleMessage: (peer, message) => this.handleMessage(peer, message),
-      crashHandler
+      nonPeerReceiver,
+      peers,
+      scheduler: this.scheduler
     })
   }
 
