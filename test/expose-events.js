@@ -253,6 +253,29 @@ describe('expose-events', () => {
         })
       })
 
+      context('listers are added while emitting', () => {
+        it('calls them', ctx => {
+          ctx.emitter.on(ctx.event, () => {
+            ctx.emitter.on(ctx.event, ctx.listener)
+          })
+
+          ctx.emitter.emit(ctx.event)
+          assert(ctx.listener.calledOnce)
+        })
+      })
+
+      context('listers are removed while emitting', () => {
+        it('does not call them', ctx => {
+          ctx.emitter.on(ctx.event, () => {
+            ctx.emitter.removeListener(ctx.event, ctx.listener)
+          })
+          ctx.emitter.on(ctx.event, ctx.listener)
+
+          ctx.emitter.emit(ctx.event)
+          assert(ctx.listener.notCalled)
+        })
+      })
+
       context('a listener throws', () => {
         beforeEach(ctx => {
           ctx.err = Symbol()
