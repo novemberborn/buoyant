@@ -27,21 +27,17 @@ const babel = require('babel-core')
 // Only modules in the test dir are transformed. All other modules are
 // assumed to be compatible. This means the examples run with the build code
 // as it's distributed on npm.
-const testDir = path.resolve(__dirname, '..')
-const requirePlain = require.extensions['.js']
-require.extensions['.js'] = function (module, filename) {
-  if (!filename.startsWith(testDir + '/')) {
-    requirePlain(module, filename)
-    return
-  }
-
-  const result = babel.transformFileSync(filename, {
-    sourceMap: true,
+const testDir = path.resolve(__dirname, '..') + '/'
+require('pirates').addHook(function (code, filename) {
+  const result = babel.transform(code, {
     ast: false,
+    filename,
     plugins: ['babel-plugin-espower', 'transform-async-to-generator'],
-    resolveModuleSource
+    resolveModuleSource,
+    sourceMap: true
   })
-
   transformMaps[filename] = { url: filename, map: result.map }
-  module._compile(result.code, filename)
-}
+  return result.code
+}, {
+  matcher: filename => filename.startsWith(testDir)
+})

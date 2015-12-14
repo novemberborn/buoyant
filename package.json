@@ -50,6 +50,7 @@
     "lolex": "^1.4.0",
     "mocha": "^2.3.4",
     "nyc": "^5.0.0",
+    "pirates": "^2.1.0",
     "power-assert": "^1.2.0",
     "proxyquire": "^1.7.3",
     "rimraf": "^2.4.4",
