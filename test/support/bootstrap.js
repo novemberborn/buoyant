@@ -37,11 +37,7 @@ function resolveModuleSource (source, filename) {
 }
 
 const babel = require('babel-core')
-// Only modules in the test dir are transformed. All other modules are
-// assumed to be compatible. This means the examples run with the build code
-// as it's distributed on npm.
-const testDir = path.resolve(__dirname, '..') + '/'
-require('pirates').addHook(function (code, filename) {
+function transform (code, filename) {
   const result = babel.transform(code, {
     ast: false,
     filename,
@@ -51,6 +47,13 @@ require('pirates').addHook(function (code, filename) {
   })
   transformMaps[filename] = { url: filename, map: result.map }
   return result.code
-}, {
+}
+exports.transform = transform
+
+// Only modules in the test dir are transformed. All other modules are
+// assumed to be compatible. This means the examples run with the build code
+// as it's distributed on npm.
+const testDir = path.resolve(__dirname, '..') + '/'
+require('pirates').addHook(transform, {
   matcher: filename => filename.startsWith(testDir)
 })

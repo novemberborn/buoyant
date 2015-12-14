@@ -30,6 +30,7 @@
     "build": "babel src --out-dir ./ --source-maps",
     "prepublish": "npm run build",
     "example": "node bin/example.js",
+    "fuzz": "node bin/fuzz.js",
     "lint": "standard",
     "test": "mocha",
     "posttest": "npm run lint",
