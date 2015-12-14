@@ -51,10 +51,6 @@ export default class Network {
 
     const [sender, receiver, message] = this.buffer.shift()
     return {
-      requeue: () => {
-        const position = this.buffer[Math.floor(Math.random() * this.buffer.length)]
-        this.buffer.splice(position, 0, [sender, receiver, message])
-      },
       deliver: () => {
         const byOrigin = this.streams.get(receiver)
         if (!byOrigin) return false
@@ -64,7 +60,14 @@ export default class Network {
 
         stream.push(message)
         return true
-      }
+      },
+      message,
+      receiver,
+      requeue: () => {
+        const position = this.buffer[Math.floor(Math.random() * this.buffer.length)]
+        this.buffer.splice(position, 0, [sender, receiver, message])
+      },
+      sender
     }
   }
 }

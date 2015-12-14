@@ -20,7 +20,7 @@ export default class Process {
 
     this._currentTime = 0
     this._clock = installClock(this.server._raft.timers, this._currentTime, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
-    this._scheduler = this.server._raft.scheduler
+    this._raft = this.server._raft
   }
 
   advanceClock () {
@@ -31,6 +31,9 @@ export default class Process {
   get currentTime () { return this._currentTime }
 
   idle () {
-    return new Promise(resolve => this.scheduler.asap(resolve, resolve))
+    if (!this._raft.currentRole) return Promise.resolve()
+
+    const scheduler = this._raft.currentRole.scheduler
+    return new Promise(resolve => scheduler.asap(() => resolve(this.idle()), resolve))
   }
 }
