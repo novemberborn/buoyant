@@ -74,8 +74,8 @@ export function createServer ({
     electionTimeoutWindow,
     heartbeatInterval,
     id: address.serverId,
-    persistEntries (entries, lastApplied) {
-      return new Promise(resolve => resolve(persistEntries(entries, lastApplied)))
+    persistEntries (entries) {
+      return new Promise(resolve => resolve(persistEntries(entries)))
     },
     persistState (state) {
       return new Promise(resolve => resolve(persistState(state)))
