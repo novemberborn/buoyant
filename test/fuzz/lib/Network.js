@@ -3,14 +3,17 @@ import { Duplex, Readable } from 'stream'
 const NonPeer = { [Symbol.for('Non-peer address')]: true }
 
 export default class Network {
-  constructor () {
-    this.streams = new Map()
-    this.buffer = []
+  constructor ({ getProcess }) {
+    this._getProcess = getProcess
+
+    this._counter = 0
+    this._streams = new Map()
+    this._queue = []
   }
 
   createTransport (serverAddress) {
     const byOrigin = new Map()
-    this.streams.set(serverAddress, byOrigin)
+    this._streams.set(serverAddress, byOrigin)
 
     const nonPeerStream = new Readable({ objectMode: true, read () {} })
     byOrigin.set(NonPeer, nonPeerStream)
@@ -24,7 +27,7 @@ export default class Network {
             stream = new Duplex({
               objectMode: true,
               read () {},
-              write (message, _, done) {
+              write: (message, _, done) => {
                 this.enqueue(serverAddress, peerAddress, message)
                 done()
               }
@@ -38,36 +41,45 @@ export default class Network {
 
         return stream
       },
-      destroy: () => this.streams.delete(serverAddress)
+      destroy: () => this._streams.delete(serverAddress)
     }
   }
 
   enqueue (sender, receiver, message) {
-    this.buffer.push([sender, receiver, message])
+    this._queue.push({
+      delivered: 0,
+      id: this._counter++,
+      message,
+      receiver,
+      sender,
+      timestamp: this._getProcess(sender).currentTime
+    })
+  }
+
+  hasQueued () {
+    return this._queue.length > 0
   }
 
   dequeue () {
-    if (this.buffer.length === 0) return null
+    if (!this.hasQueued()) return null
 
-    const [sender, receiver, message] = this.buffer.shift()
-    return {
+    const entry = this._queue.shift()
+    return Object.assign({
       deliver: () => {
-        const byOrigin = this.streams.get(receiver)
+        const byOrigin = this._streams.get(entry.receiver)
         if (!byOrigin) return false
 
-        const stream = byOrigin.get(sender)
+        const stream = byOrigin.get(entry.sender)
         if (!stream) return false
 
-        stream.push(message)
+        stream.push(entry.message)
+        entry.delivered++
         return true
       },
-      message,
-      receiver,
       requeue: () => {
-        const position = this.buffer[Math.floor(Math.random() * this.buffer.length)]
-        this.buffer.splice(position, 0, [sender, receiver, message])
-      },
-      sender
-    }
+        const position = this._queue[Math.floor(Math.random() * this._queue.length)]
+        this._queue.splice(position, 0, entry)
+      }
+    }, entry)
   }
 }
