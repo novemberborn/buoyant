@@ -32,7 +32,7 @@
     "example": "node bin/example.js",
     "fuzz": "node bin/fuzz.js",
     "lint": "standard",
-    "test": "mocha",
+    "test": "mocha test/unit/*.js",
     "posttest": "npm run lint",
     "precoverage": "rimraf coverage",
     "coverage": "nyc --reporter=lcov --reporter=text npm test"
