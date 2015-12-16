@@ -48,7 +48,7 @@ export default class Network {
       queued: 1,
       receiver,
       sender,
-      timestamp: this._getProcess(sender).currentTime
+      sentAt: this._getProcess(sender).currentTime
     })
   }
 

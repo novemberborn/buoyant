@@ -36,11 +36,6 @@ export default class Orchestrator {
   }
 
   async run () {
-    this.log.push({
-      type: 'initialCluster',
-      size: this.configuration.processes.size,
-      addresses: this.configuration.addresses.slice()
-    })
     await this.configuration.joinInitialCluster()
 
     // Advance the clock of a random process. This will cause it to start an
@@ -55,7 +50,8 @@ export default class Orchestrator {
       throw new Error('No leader')
     }
 
-    console.log(this.activeRoles)
+    const [leader] = this.activeRoles.leader.keys()
+    console.log('Leader:', leader.serverId)
   }
 
   _handleInternalEvent (evt) {
@@ -89,13 +85,14 @@ export default class Orchestrator {
   }
 
   _handleMessage (message) {
-    const { deliveries, id, payload, queued, receiver, sender, timestamp } = message
-    const record = { id, payload, queued, receiver, sender, timestamp }
+    const { deliveries, id, payload, queued, receiver, sender, sentAt } = message
+    const record = { address: receiver, id, payload, queued, sender, sentAt }
 
     // Log with an incremented count because the message will be delivered after
     // logging.
     record.deliveries = deliveries + 1
-    record.type = 'deliverMessage'
+    record.timestamp = this.configuration.getProcess(receiver).currentTime
+    record.type = 'receiveMessage'
     this.log.push(record)
     message.deliver()
   }

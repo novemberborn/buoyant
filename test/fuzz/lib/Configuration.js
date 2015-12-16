@@ -22,7 +22,7 @@ export default class Configuration {
     this.internalEvents = []
     this.processes = new Map()
     this.network = new Network({
-      getProcess: address => this.processes.get(address)
+      getProcess: this.getProcess.bind(this)
     })
 
     const createTransport = this.network.createTransport.bind(this.network)
@@ -48,6 +48,10 @@ export default class Configuration {
         process.on(event, (...args) => emitter.emit('stateChange', process, event, ...args))
       })
     }
+  }
+
+  getProcess (address) {
+    return this.processes.get(address)
   }
 
   joinInitialCluster () {

@@ -1,10 +1,12 @@
 import Configuration from './lib/Configuration'
 import Orchestrator from './lib/Orchestrator'
+import StdoutReporter from './lib/StdoutReporter'
 
 const configuration = new Configuration(5)
 const orchestrator = new Orchestrator(configuration)
+const reporter = new StdoutReporter()
 
-orchestrator.log.on('data', item => console.log(item))
+orchestrator.log.pipe(reporter)
 
 orchestrator.run().catch(err => {
   console.error(err && err.stack || err)
