@@ -81,7 +81,7 @@ export default class Raft {
       let abort = null
       let aborted = false
       const promise = new Promise((resolve, reject) => {
-        connect({ address, readWrite: true }).then(stream => {
+        connect({ address }).then(stream => {
           if (!aborted) {
             resolve(new Peer(address, stream))
           }

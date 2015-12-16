@@ -180,9 +180,9 @@ describe('Raft', () => {
       ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream })
       assert(ctx.connect.calledTwice)
       for (let n = 0; n < ctx.connect.callCount; n++) {
-        const { args: [{ address, readWrite }] } = ctx.connect.getCall(n)
+        const { args: [{ address, writeOnly }] } = ctx.connect.getCall(n)
         assert(address === ctx.addresses[n])
-        assert(readWrite === true)
+        assert(writeOnly !== true)
       }
     })
 
