@@ -14,38 +14,39 @@ const handlerMap = Object.create(null, {
 // Implements follower behavior according to Raft.
 export default class Follower {
   constructor ({
-    electionTimeout,
-    state,
-    log,
-    peers,
-    nonPeerReceiver,
+    convertToCandidate,
     crashHandler,
-    convertToCandidate
+    electionTimeout,
+    log,
+    nonPeerReceiver,
+    peers,
+    state,
+    timers
   }) {
-    this.electionTimeout = electionTimeout
-    this.state = state
-    this.log = log
     this.convertToCandidate = convertToCandidate
+    this.electionTimeout = electionTimeout
+    this.log = log
+    this.state = state
+    this.timers = timers
 
-    this.destroyed = false
     this.commitIndex = 0
-
+    this.destroyed = false
     this.ignoreNextElectionTimeout = false
+    this.intervalObject = null
     this.scheduledTimeoutHandler = false
-    this.timer = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
-      peers,
-      nonPeerReceiver,
-      scheduler: this.scheduler,
+      crashHandler,
       handleMessage: (peer, message) => this.handleMessage(peer, message),
-      crashHandler
+      nonPeerReceiver,
+      peers,
+      scheduler: this.scheduler
     })
   }
 
   start (replayMessage) {
-    this.timer = setInterval(() => this.maybeStartElection(), this.electionTimeout)
+    this.intervalObject = this.timers.setInterval(() => this.maybeStartElection(), this.electionTimeout)
 
     if (replayMessage) {
       this.scheduler.asap(null, () => this.handleMessage(...replayMessage))
@@ -57,7 +58,7 @@ export default class Follower {
 
   destroy () {
     this.destroyed = true
-    clearInterval(this.timer)
+    this.timers.clearInterval(this.intervalObject)
     this.inputConsumer.stop()
     this.scheduler.abort()
   }

@@ -1,5 +1,3 @@
-import { resolve } from 'path'
-
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { install as installClock } from 'lolex'
@@ -10,32 +8,35 @@ import {
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
+} from '../support/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from '../support/stub-helpers'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,
   RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
+} from '🏠/lib/symbols'
 
-import Entry from '../lib/Entry'
+import Entry from '🏠/lib/Entry'
 
 describe('roles/Follower', () => {
   before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))
   after(ctx => ctx.clock.uninstall())
 
-  setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
+  setupConstructors('Follower')
 
   beforeEach(ctx => {
-    const electionTimeout = ctx.electionTimeout = 10
-    const state = ctx.state = stubState()
-    const log = ctx.log = stubLog()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = stub()
     const convertToCandidate = ctx.convertToCandidate = stub()
+    const crashHandler = ctx.crashHandler = stub()
+    const electionTimeout = ctx.electionTimeout = 10
+    const log = ctx.log = stubLog()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
+    const state = ctx.state = stubState()
 
-    ctx.follower = new ctx.Follower({ electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate })
+    const { clock, timers } = stubTimers()
+    ctx.clock = clock
+
+    ctx.follower = new ctx.Follower({ convertToCandidate, crashHandler, electionTimeout, log, nonPeerReceiver, peers, state, timers })
   })
 
   afterEach(ctx => !ctx.follower.destroyed && ctx.follower.destroy())

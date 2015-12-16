@@ -2,9 +2,9 @@ import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { stub } from 'sinon'
 
-import { getReason } from './support/utils'
+import { getReason } from '../support/utils'
 
-import State from '../lib/State'
+import State from '🏠/lib/State'
 
 describe('State', () => {
   beforeEach(ctx => {

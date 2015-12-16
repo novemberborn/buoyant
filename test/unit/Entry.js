@@ -1,7 +1,7 @@
 import { before, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 
-import Entry from '../lib/Entry'
+import Entry from '🏠/lib/Entry'
 
 describe('Entry', () => {
   describe('constructor (index, term, value)', () => {

@@ -1,17 +1,17 @@
 import { before, beforeEach, context, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import InputConsumer from '../../lib/InputConsumer'
-import Scheduler from '../../lib/Scheduler'
+import InputConsumer from '🏠/lib/InputConsumer'
+import Scheduler from '🏠/lib/Scheduler'
 
-export function setupConstructors (roleSource) {
+export function setupConstructors (className) {
   before(ctx => {
     ctx.InputConsumer = spy(function (...args) { return new InputConsumer(...args) })
     ctx.Scheduler = spy(function (...args) { return new Scheduler(...args) })
 
-    const Role = proxyquire.noCallThru()(roleSource, {
+    const Role = proxyquire(`lib/roles/${className}`, {
       '../InputConsumer': function (...args) { return ctx.InputConsumer(...args) },
       '../Scheduler': function (...args) { return ctx.Scheduler(...args) }
     })['default']

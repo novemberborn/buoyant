@@ -1,9 +1,10 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import { getReason } from './support/utils'
+import { stubState } from '../support/stub-helpers'
+import { getReason } from '../support/utils'
 
 describe('Raft', () => {
   before(ctx => {
@@ -13,12 +14,12 @@ describe('Raft', () => {
 
     ctx.Log = spy(() => stub({ replace () {}, close () {}, destroy () {} }))
     ctx.LogEntryApplier = spy(() => stub())
-    ctx.State = spy(() => stub({ replace () {} }))
+    ctx.State = spy(() => stubState())
 
     ctx.NonPeerReceiver = spy(() => stub())
     ctx.Peer = spy(() => stub())
 
-    ctx.Raft = proxyquire.noCallThru()('../lib/Raft', {
+    ctx.Raft = proxyquire('lib/Raft', {
       './roles/Candidate': function (...args) { return ctx.Candidate(...args) },
       './roles/Follower': function (...args) { return ctx.Follower(...args) },
       './roles/Leader': function (...args) { return ctx.Leader(...args) },
@@ -72,10 +73,33 @@ describe('Raft', () => {
 
   const emitsEvent = (method, event) => {
     it(`emits a ${event} event`, ctx => {
+      const currentTerm = Symbol()
+      ctx.raft.state._currentTerm.returns(currentTerm)
+
       ctx.raft[method]()
       assert(ctx.emitEvent.calledOnce)
-      const { args: [emitted] } = ctx.emitEvent.firstCall
+      const { args: [emitted, term] } = ctx.emitEvent.firstCall
       assert(emitted === event)
+      assert(term === currentTerm)
+    })
+
+    context(`the role is changed before the ${event} event is emitted`, () => {
+      it('does not emit the event', ctx => {
+        Object.defineProperty(ctx.raft, 'currentRole', {
+          get () { return this._role || null },
+          set (role) {
+            this._role = role
+            if (role) {
+              role.start = () => {
+                ctx.raft.currentRole = null
+              }
+            }
+          }
+        })
+
+        ctx.raft[method]()
+        assert(ctx.emitEvent.notCalled)
+      })
     })
   }
 
@@ -156,9 +180,9 @@ describe('Raft', () => {
       ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream })
       assert(ctx.connect.calledTwice)
       for (let n = 0; n < ctx.connect.callCount; n++) {
-        const { args: [{ address, readWrite }] } = ctx.connect.getCall(n)
+        const { args: [{ address, writeOnly }] } = ctx.connect.getCall(n)
         assert(address === ctx.addresses[n])
-        assert(readWrite === true)
+        assert(writeOnly !== true)
       }
     })
 

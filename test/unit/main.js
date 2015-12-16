@@ -1,22 +1,22 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import { getReason } from './support/utils'
+import { getReason } from '../support/utils'
 
 import {
   AppendEntries, AcceptEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote,
   Noop
-} from '../lib/symbols'
-import Address from '../lib/Address'
-import Entry from '../lib/Entry'
+} from '🏠/lib/symbols'
+import Address from '🏠/lib/Address'
+import Entry from '🏠/lib/Entry'
 
 describe('main', () => {
   before(ctx => {
     ctx.Server = spy(() => stub())
-    ctx.main = proxyquire.noCallThru()('../main', {
+    ctx.main = proxyquire('main', {
       './lib/Server': function (...args) { return ctx.Server(...args) }
     })
   })

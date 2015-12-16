@@ -2,7 +2,7 @@ import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { stub } from 'sinon'
 
-import MessageBuffer from '../lib/MessageBuffer'
+import MessageBuffer from '🏠/lib/MessageBuffer'
 
 describe('MessageBuffer', () => {
   beforeEach(ctx => {

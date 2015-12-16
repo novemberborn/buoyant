@@ -16,25 +16,23 @@ const handlerMap = Object.create(null, {
 // Implements leader behavior according to Raft.
 export default class Leader {
   constructor ({
-    heartbeatInterval,
-    state,
-    log,
-    peers,
-    nonPeerReceiver,
-    crashHandler,
     convertToCandidate,
-    convertToFollower
+    convertToFollower,
+    crashHandler,
+    heartbeatInterval,
+    log,
+    nonPeerReceiver,
+    peers,
+    state,
+    timers
   }) {
-    this.heartbeatInterval = heartbeatInterval
-    this.state = state
-    this.log = log
-    this.peers = peers
     this.convertToCandidate = convertToCandidate
     this.convertToFollower = convertToFollower
-
-    this.destroyed = false
-    this.commitIndex = 0
-    this.pendingApplication = []
+    this.heartbeatInterval = heartbeatInterval
+    this.log = log
+    this.peers = peers
+    this.state = state
+    this.timers = timers
 
     // Track Raft's `nextIndex` and `matchIndex` values for each peer.
     this.peerState = peers.reduce((map, peer) => {
@@ -43,21 +41,25 @@ export default class Leader {
         matchIndex: 0
       })
     }, new Map())
+
+    this.commitIndex = 0
+    this.destroyed = false
+    this.pendingApplication = []
     this.skipNextHeartbeat = false
-    this.timer = null
+    this.intervalObject = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
-      peers,
-      nonPeerReceiver,
-      scheduler: this.scheduler,
+      crashHandler,
       handleMessage: (peer, message) => this.handleMessage(peer, message),
-      crashHandler
+      nonPeerReceiver,
+      peers,
+      scheduler: this.scheduler
     })
   }
 
   start () {
-    this.timer = setInterval(() => this.sendHeartbeat(), this.heartbeatInterval)
+    this.intervalObject = this.timers.setInterval(() => this.sendHeartbeat(), this.heartbeatInterval)
 
     // Claim leadership by appending a no-op entry. Committing that entry also
     // causes any uncommitted entries from previous terms to be committed.
@@ -69,7 +71,7 @@ export default class Leader {
 
   destroy () {
     this.destroyed = true
-    clearInterval(this.timer)
+    this.timers.clearInterval(this.intervalObject)
     this.inputConsumer.stop()
     this.scheduler.abort()
     for (const { reject } of this.pendingApplication) {

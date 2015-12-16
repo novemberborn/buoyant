@@ -1,8 +1,5 @@
-import { resolve } from 'path'
-
-import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
+import { afterEach, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
-import { install as installClock } from 'lolex'
 import { spy, stub } from 'sinon'
 
 import {
@@ -11,32 +8,32 @@ import {
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
+} from '../support/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from '../support/stub-helpers'
 
 import {
   AppendEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
+} from '🏠/lib/symbols'
 
 describe('roles/Candidate', () => {
-  before(ctx => ctx.clock = installClock(0, ['setTimeout', 'clearTimeout']))
-  after(ctx => ctx.clock.uninstall())
-
-  setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
+  setupConstructors('Candidate')
 
   beforeEach(ctx => {
-    const ourId = ctx.ourId = Symbol()
-    const electionTimeout = ctx.electionTimeout = 10
-    const state = ctx.state = stubState()
-    const log = ctx.log = stubLog()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = stub()
-    const convertToFollower = ctx.convertToFollower = stub()
     const becomeLeader = ctx.becomeLeader = stub()
+    const convertToFollower = ctx.convertToFollower = stub()
+    const crashHandler = ctx.crashHandler = stub()
+    const electionTimeout = ctx.electionTimeout = 10
+    const log = ctx.log = stubLog()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const ourId = ctx.ourId = Symbol()
+    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
+    const state = ctx.state = stubState()
 
-    ctx.candidate = new ctx.Candidate({ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader })
+    const { clock, timers } = stubTimers()
+    ctx.clock = clock
+
+    ctx.candidate = new ctx.Candidate({ becomeLeader, convertToFollower, crashHandler, electionTimeout, log, nonPeerReceiver, ourId, peers, state, timers })
   })
 
   afterEach(ctx => !ctx.candidate.destroyed && ctx.candidate.destroy())

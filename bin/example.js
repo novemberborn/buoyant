@@ -29,22 +29,18 @@ sourceMapSupport.install({
 // Only modules in the example dir are transformed. All other modules are
 // assumed to be compatible. This means the examples run with the build code
 // as it's distributed on npm.
-const exampleDir = path.dirname(mod)
-const requirePlain = require.extensions['.js']
-require.extensions['.js'] = function (module, filename) {
-  if (!filename.startsWith(exampleDir + '/')) {
-    requirePlain(module, filename)
-    return
-  }
-
-  const result = babel.transformFileSync(filename, {
-    sourceMap: true,
-    ast: false
-  })
-
+const exampleDir = path.dirname(mod) + '/'
+require('pirates').addHook(function (code, filename) {
+  const result = babel.transform(code, Object.assign({
+    ast: false,
+    filename,
+    sourceMap: true
+  }))
   transformMaps[filename] = { url: filename, map: result.map }
-  module._compile(result.code, filename)
-}
+  return result.code
+}, {
+  matcher: filename => filename.startsWith(exampleDir)
+})
 
 // Now load the example.
 require(mod)

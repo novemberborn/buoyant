@@ -5,6 +5,7 @@ import Leader from './roles/Leader'
 import Log from './Log'
 import LogEntryApplier from './LogEntryApplier'
 import State from './State'
+import Timers from './Timers'
 
 import NonPeerReceiver from './NonPeerReceiver'
 import Peer from './Peer'
@@ -18,31 +19,32 @@ function intInRange (range) {
 // Implements Raft-compliant behavior.
 export default class Raft {
   constructor ({
-    id,
-    electionTimeoutWindow,
-    heartbeatInterval,
-    persistState,
-    persistEntries,
     applyEntry,
     crashHandler,
-    emitEvent
+    electionTimeoutWindow,
+    emitEvent,
+    heartbeatInterval,
+    id,
+    persistEntries,
+    persistState
   }) {
-    this.id = id
-    this.electionTimeout = intInRange(electionTimeoutWindow)
-    this.heartbeatInterval = heartbeatInterval
-
-    this.state = new State(persistState)
-    this.log = new Log({
-      persistEntries,
-      applier: new LogEntryApplier({ applyEntry, crashHandler })
-    })
-
     this.crashHandler = crashHandler
+    this.electionTimeout = intInRange(electionTimeoutWindow)
     this.emitEvent = emitEvent
+    this.heartbeatInterval = heartbeatInterval
+    this.id = id
 
-    this.peers = null
-    this.nonPeerReceiver = null
+    this.log = new Log({
+      applier: new LogEntryApplier({ applyEntry, crashHandler }),
+      persistEntries
+    })
+    this.state = new State(persistState)
+
     this.currentRole = null
+    this.nonPeerReceiver = null
+    this.peers = null
+
+    this.timers = new Timers()
   }
 
   replaceState (state) {
@@ -79,7 +81,7 @@ export default class Raft {
       let abort = null
       let aborted = false
       const promise = new Promise((resolve, reject) => {
-        connect({ address, readWrite: true }).then(stream => {
+        connect({ address }).then(stream => {
           if (!aborted) {
             resolve(new Peer(address, stream))
           }
@@ -116,23 +118,27 @@ export default class Raft {
       this.currentRole.destroy()
     }
 
-    // Emit the `leader` event now. Events are emitted asynchronously so it's
-    // safe to emit before the leader role has been instantiated. In case the
-    // role emits further events they'll be ordered correctly.
-    this.emitEvent('leader')
-
-    const { heartbeatInterval, state, log, peers, nonPeerReceiver, crashHandler } = this
-    this.currentRole = new Leader({
-      heartbeatInterval,
-      state,
-      log,
-      peers,
-      nonPeerReceiver,
-      crashHandler,
+    const { crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state, timers } = this
+    const role = this.currentRole = new Leader({
       convertToCandidate: this.convertToCandidate.bind(this),
-      convertToFollower: this.convertToFollower.bind(this)
+      convertToFollower: this.convertToFollower.bind(this),
+      crashHandler,
+      heartbeatInterval,
+      log,
+      nonPeerReceiver,
+      peers,
+      state,
+      timers
     })
     this.currentRole.start()
+
+    // Only emit the event if the leader role is still active. It is possible
+    // for it to synchronously consume a message that causes it to become a
+    // follower, or to crash, causing the role to be destroyed before the event
+    // can be emitted.
+    if (this.currentRole === role) {
+      this.emitEvent('leader', this.state.currentTerm)
+    }
   }
 
   convertToCandidate () {
@@ -140,24 +146,27 @@ export default class Raft {
       this.currentRole.destroy()
     }
 
-    // Emit the `candidate` event now. Events are emitted asynchronously so it's
-    // safe to emit before the candidate role has been instantiated. In case the
-    // role emits further events they'll be ordered correctly.
-    this.emitEvent('candidate')
-
-    const { id: ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler } = this
-    this.currentRole = new Candidate({
-      ourId,
-      electionTimeout,
-      state,
-      log,
-      peers,
-      nonPeerReceiver,
-      crashHandler,
+    const { crashHandler, electionTimeout, id: ourId, log, nonPeerReceiver, peers, state, timers } = this
+    const role = this.currentRole = new Candidate({
+      becomeLeader: this.becomeLeader.bind(this),
       convertToFollower: this.convertToFollower.bind(this),
-      becomeLeader: this.becomeLeader.bind(this)
+      crashHandler,
+      electionTimeout,
+      log,
+      nonPeerReceiver,
+      ourId,
+      peers,
+      state,
+      timers
     })
     this.currentRole.start()
+
+    // Only emit the event if the candidate role is still active. It is possible
+    // for it to crash, causing the role to be destroyed before the event can be
+    // emitted.
+    if (this.currentRole === role) {
+      this.emitEvent('candidate', this.state.currentTerm)
+    }
   }
 
   convertToFollower (replayMessage) {
@@ -165,24 +174,27 @@ export default class Raft {
       this.currentRole.destroy()
     }
 
-    // Emit the `follower` event now. Events are emitted asynchronously so it's
-    // safe to emit before the follower role has been instantiated. In case the
-    // role emits further events they'll be ordered correctly.
-    this.emitEvent('follower')
-
-    const { electionTimeout, state, log, peers, nonPeerReceiver, crashHandler } = this
-    this.currentRole = new Follower({
-      electionTimeout,
-      state,
-      log,
-      peers,
-      nonPeerReceiver,
+    const { crashHandler, electionTimeout, log, nonPeerReceiver, peers, state, timers } = this
+    const role = this.currentRole = new Follower({
+      convertToCandidate: this.convertToCandidate.bind(this),
       crashHandler,
-      convertToCandidate: this.convertToCandidate.bind(this)
+      electionTimeout,
+      log,
+      nonPeerReceiver,
+      peers,
+      state,
+      timers
     })
     // The server can convert to follower state based on an incoming message.
     // Pass the message along so the follower can "replay" it.
     this.currentRole.start(replayMessage)
+
+    // Only emit the event if the follower role is still active. It is possible
+    // for it to crash, causing the role to be destroyed before the event can be
+    // emitted.
+    if (this.currentRole === role) {
+      this.emitEvent('follower', this.state.currentTerm)
+    }
   }
 
   append (value) {

@@ -1,12 +1,12 @@
 import { before, beforeEach, describe, context, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import { getReason } from './support/utils'
+import { getReason } from '../support/utils'
 
-import exposeEvents from '../lib/expose-events'
-import Address from '../lib/Address'
+import exposeEvents from '🏠/lib/expose-events'
+import Address from '🏠/lib/Address'
 
 describe('Server', () => {
   before(ctx => {
@@ -26,7 +26,7 @@ describe('Server', () => {
       destroy () {}
     }))
 
-    ctx.Server = proxyquire.noCallThru()('../lib/Server', {
+    ctx.Server = proxyquire('lib/Server', {
       './expose-events': function (...args) { return ctx.exposeEvents(...args) },
       './Raft': function (...args) { return ctx.Raft(...args) }
     })['default']

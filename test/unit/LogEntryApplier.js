@@ -2,9 +2,9 @@ import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { spy, stub } from 'sinon'
 
-import { Noop } from '../lib/symbols'
-import Entry from '../lib/Entry'
-import LogEntryApplier from '../lib/LogEntryApplier'
+import { Noop } from '🏠/lib/symbols'
+import Entry from '🏠/lib/Entry'
+import LogEntryApplier from '🏠/lib/LogEntryApplier'
 
 describe('LogEntryApplier', () => {
   beforeEach(ctx => {

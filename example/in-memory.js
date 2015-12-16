@@ -15,7 +15,7 @@ class Transport {
     return this.nonPeerStream
   }
 
-  connect ({ address: peerAddress, readWrite = true, writeOnly = false }) {
+  connect ({ address: peerAddress, writeOnly = false }) {
     // N.B. writeOnly is used when creating a peer instance for a non-peer
     // receiver, which does not occur in this example.
     const stream = new Duplex({

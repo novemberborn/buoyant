@@ -1,12 +1,12 @@
 import { before, beforeEach, describe, it } from '!mocha'
 import assert from 'power-assert'
-import proxyquire from 'proxyquire'
+import proxyquire from '!proxyquire'
 import { stub } from 'sinon'
 
 describe('Peer', () => {
   before(ctx => {
     ctx.MessageBuffer = stub()
-    ctx.Peer = proxyquire.noCallThru()('../lib/Peer', {
+    ctx.Peer = proxyquire('lib/Peer', {
       './MessageBuffer': function (...args) { return ctx.MessageBuffer(...args) }
     })['default']
   })

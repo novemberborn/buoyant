@@ -15,36 +15,38 @@ const handlerMap = Object.create(null, {
 // Implements candidate behavior according to Raft.
 export default class Candidate {
   constructor ({
-    ourId,
-    electionTimeout,
-    state,
-    log,
-    peers,
-    nonPeerReceiver,
-    crashHandler,
+    becomeLeader,
     convertToFollower,
-    becomeLeader
+    crashHandler,
+    electionTimeout,
+    log,
+    nonPeerReceiver,
+    ourId,
+    peers,
+    state,
+    timers
   }) {
-    this.ourId = ourId
-    this.electionTimeout = electionTimeout
-    this.state = state
-    this.log = log
-    this.peers = peers
-    this.convertToFollower = convertToFollower
     this.becomeLeader = becomeLeader
+    this.convertToFollower = convertToFollower
+    this.electionTimeout = electionTimeout
+    this.log = log
+    this.ourId = ourId
+    this.peers = peers
+    this.state = state
+    this.timers = timers
 
     this.destroyed = false
-    this.timer = null
+    this.timeoutObject = null
     this.votesRequired = 0
     this.votesAlreadyReceived = null
 
     this.scheduler = new Scheduler(crashHandler)
     this.inputConsumer = new InputConsumer({
-      peers,
-      nonPeerReceiver,
-      scheduler: this.scheduler,
+      crashHandler,
       handleMessage: (peer, message) => this.handleMessage(peer, message),
-      crashHandler
+      nonPeerReceiver,
+      peers,
+      scheduler: this.scheduler
     })
   }
 
@@ -57,7 +59,7 @@ export default class Candidate {
 
   destroy () {
     this.destroyed = true
-    clearTimeout(this.timer)
+    this.timers.clearTimeout(this.timeoutObject)
     this.inputConsumer.stop()
     this.scheduler.abort()
   }
@@ -85,7 +87,7 @@ export default class Candidate {
         // Start the timer for this election. Intervals aren't used as they
         // complicate the logic. As the server isn't expected to remain a
         // candidate for very long there shouldn't be too many timers created.
-        this.timer = setTimeout(() => this.requestVote(), this.electionTimeout)
+        this.timeoutObject = this.timers.setTimeout(() => this.requestVote(), this.electionTimeout)
       })
     })
   }

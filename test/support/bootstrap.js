@@ -17,31 +17,43 @@ sourceMapSupport.install({
   }
 })
 
+// Rewrite paths starting with `🏠/`, as well as the `🏠` path, to the package
+// root.
+const homeDir = path.resolve(__dirname, '..', '..')
 // Resolve the `!mocha` source to the wrapper module.
 const mochaWrapperSource = path.join(__dirname, 'mocha-wrapper.js')
+// Resolve the `!proxyquire` source to the wrapper module.
+const proxyquireWrapperSource = path.join(__dirname, 'proxyquire-wrapper.js')
 function resolveModuleSource (source, filename) {
-  return source === '!mocha' ? mochaWrapperSource : source
+  if (source.startsWith('🏠/') || source === '🏠') {
+    return path.join(homeDir, source.slice(3)) // 2 bytes for the 🏠 character!
+  } else if (source === '!mocha') {
+    return mochaWrapperSource
+  } else if (source === '!proxyquire') {
+    return proxyquireWrapperSource
+  } else {
+    return source
+  }
 }
 
 const babel = require('babel-core')
+function transform (code, filename) {
+  const result = babel.transform(code, {
+    ast: false,
+    filename,
+    plugins: ['babel-plugin-espower', 'transform-async-to-generator'],
+    resolveModuleSource,
+    sourceMap: true
+  })
+  transformMaps[filename] = { url: filename, map: result.map }
+  return result.code
+}
+exports.transform = transform
+
 // Only modules in the test dir are transformed. All other modules are
 // assumed to be compatible. This means the examples run with the build code
 // as it's distributed on npm.
-const testDir = path.resolve(__dirname, '..')
-const requirePlain = require.extensions['.js']
-require.extensions['.js'] = function (module, filename) {
-  if (!filename.startsWith(testDir + '/')) {
-    requirePlain(module, filename)
-    return
-  }
-
-  const result = babel.transformFileSync(filename, {
-    sourceMap: true,
-    ast: false,
-    plugins: ['babel-plugin-espower', 'transform-async-to-generator'],
-    resolveModuleSource
-  })
-
-  transformMaps[filename] = { url: filename, map: result.map }
-  module._compile(result.code, filename)
-}
+const testDir = path.resolve(__dirname, '..') + '/'
+require('pirates').addHook(transform, {
+  matcher: filename => filename.startsWith(testDir)
+})

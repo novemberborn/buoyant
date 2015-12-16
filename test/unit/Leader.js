@@ -1,5 +1,3 @@
-import { resolve } from 'path'
-
 import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { install as installClock } from 'lolex'
@@ -11,33 +9,36 @@ import {
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState } from './support/stub-helpers'
-import { getReason } from './support/utils'
+} from '../support/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from '../support/stub-helpers'
+import { getReason } from '../support/utils'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,
   RequestVote, DenyVote,
   Noop
-} from '../lib/symbols'
+} from '🏠/lib/symbols'
 
-import Entry from '../lib/Entry'
+import Entry from '🏠/lib/Entry'
 
 describe('roles/Leader', () => {
   before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))
   after(ctx => ctx.clock.uninstall())
 
-  setupConstructors(resolve(__dirname, '../lib/roles/Leader'))
+  setupConstructors('Leader')
 
   beforeEach(ctx => {
-    const heartbeatInterval = ctx.heartbeatInterval = 10
-    const state = ctx.state = stubState()
-    const log = ctx.log = stubLog()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const crashHandler = ctx.crashHandler = stub()
     const convertToCandidate = ctx.convertToCandidate = stub()
     const convertToFollower = ctx.convertToFollower = stub()
+    const crashHandler = ctx.crashHandler = stub()
+    const heartbeatInterval = ctx.heartbeatInterval = 10
+    const log = ctx.log = stubLog()
+    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
+    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
+    const state = ctx.state = stubState()
+
+    const { clock, timers } = stubTimers()
+    ctx.clock = clock
 
     // Prime the log so nextIndex from each peer is initially divergent from its
     // matchIndex.
@@ -59,7 +60,7 @@ describe('roles/Leader', () => {
     // Set the currentTerm for the leader.
     state._currentTerm.returns(2)
 
-    ctx.leader = new ctx.Leader({ heartbeatInterval, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate, convertToFollower })
+    ctx.leader = new ctx.Leader({ convertToCandidate, convertToFollower, crashHandler, heartbeatInterval, log, nonPeerReceiver, peers, state, timers })
   })
 
   afterEach(ctx => !ctx.leader.destroyed && ctx.leader.destroy())

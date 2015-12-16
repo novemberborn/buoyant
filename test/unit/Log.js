@@ -2,8 +2,8 @@ import { beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
 import { stub } from 'sinon'
 
-import Entry from '../lib/Entry'
-import Log from '../lib/Log'
+import Entry from '🏠/lib/Entry'
+import Log from '🏠/lib/Log'
 
 describe('Log', () => {
   beforeEach(ctx => {

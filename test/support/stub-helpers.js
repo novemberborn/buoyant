@@ -1,4 +1,7 @@
+import { install as installClock } from 'lolex'
 import { stub } from 'sinon'
+
+import Timers from '../../lib/Timers'
 
 export function stubLog () {
   const log = stub({
@@ -44,6 +47,7 @@ export function stubState () {
     _votedFor () {},
     get votedFor () { return this._votedFor() },
     nextTerm () {},
+    replace () {},
     setTerm () {},
     setTermAndVote () {}
   })
@@ -51,4 +55,10 @@ export function stubState () {
   state.setTerm.returns(Promise.resolve())
   state.setTermAndVote.returns(Promise.resolve())
   return state
+}
+
+export function stubTimers () {
+  const timers = new Timers()
+  const clock = installClock(timers, 0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
+  return { clock, timers }
 }

@@ -1,14 +1,24 @@
-import { beforeEach, context, describe, it } from '!mocha'
+import { before, beforeEach, context, describe, it } from '!mocha'
 import assert from 'power-assert'
+import proxyquire from '!proxyquire'
 import { spy, stub } from 'sinon'
 
-import exposeEvents from '../lib/expose-events'
-
 describe('expose-events', () => {
+  before(ctx => {
+    ctx.process = stub({ nextTick () {} })
+    ctx.exposeEvents = proxyquire('lib/expose-events', {
+      './process': ctx.process
+    })['default']
+  })
+
+  beforeEach(ctx => {
+    ctx.process.nextTick.reset()
+  })
+
   describe('exposeEvents (target)', () => {
-    it('correctly defines on, once and removeListener on target', () => {
+    it('correctly defines on, once and removeListener on target', ctx => {
       const target = {}
-      exposeEvents(target)
+      ctx.exposeEvents(target)
 
       for (const prop of ['on', 'once', 'removeListener']) {
         const { value, configurable, enumerable, writable } = Object.getOwnPropertyDescriptor(target, prop)
@@ -19,16 +29,16 @@ describe('expose-events', () => {
       }
     })
 
-    it('returns an emitter', () => {
-      const emitter = exposeEvents({})
+    it('returns an emitter', ctx => {
+      const emitter = ctx.exposeEvents({})
       assert(typeof emitter.emit === 'function')
     })
 
     ;['on', 'once', 'removeListener'].forEach(method => {
-      describe(`target.${method} (event, listener)`, () => {
+      describe(`target.${method} (event, listener)`, ctx => {
         beforeEach(ctx => {
           ctx.target = {}
-          ctx.emitter = exposeEvents(ctx.target)
+          ctx.emitter = ctx.exposeEvents(ctx.target)
           stub(ctx.emitter, method)
         })
 
@@ -50,17 +60,9 @@ describe('expose-events', () => {
   })
 
   describe('the emitter returned by exposeEvents(target)', () => {
-    let emit
-
     const makeEmitter = ctx => {
       ctx.target = {}
-      ctx.emitter = exposeEvents(ctx.target)
-      emit = (event, ...params) => {
-        return new Promise(resolve => {
-          ctx.emitter.emit(event, ...params)
-          process.nextTick(resolve)
-        })
-      }
+      ctx.emitter = ctx.exposeEvents(ctx.target)
     }
 
     beforeEach(makeEmitter)
@@ -82,25 +84,23 @@ describe('expose-events', () => {
         })
 
         it('registers the listener for the event', ctx => {
-          return emit(ctx.event).then(() => {
-            assert(ctx.listener.calledOnce)
-          })
+          ctx.emitter.emit(ctx.event)
+          assert(ctx.listener.calledOnce)
         })
 
         describe('the listener', () => {
           it('is called with the target as the thisArg', ctx => {
-            return emit(ctx.event).then(() => {
-              assert(ctx.listener.firstCall.thisValue === ctx.target)
-            })
+            ctx.emitter.emit(ctx.event)
+            const { thisValue: target } = ctx.listener.firstCall
+            assert(target === ctx.target)
           })
 
           context('is registered more than once for the same event', () => {
             beforeEach(ctx => ctx.emitter[method](ctx.event, ctx.listener))
 
             it('is called once per emitted event', ctx => {
-              return emit(ctx.event).then(() => {
-                assert(ctx.listener.calledOnce)
-              })
+              ctx.emitter.emit(ctx.event)
+              assert(ctx.listener.calledOnce)
             })
           })
 
@@ -112,14 +112,13 @@ describe('expose-events', () => {
 
             it('is called for each event', ctx => {
               const [first, second] = [Symbol(), Symbol()]
-              return emit(ctx.event, first).then(() => {
-                const { args: [value] } = ctx.listener.firstCall
-                assert(value === first)
-                return emit(ctx.event2, second)
-              }).then(() => {
-                const { args: [value] } = ctx.listener.secondCall
-                assert(value === second)
-              })
+
+              ctx.emitter.emit(ctx.event, first)
+              ctx.emitter.emit(ctx.event2, second)
+
+              const { args: [[firstValue], [secondValue]] } = ctx.listener
+              assert(firstValue === first)
+              assert(secondValue === second)
             })
           })
         })
@@ -128,13 +127,12 @@ describe('expose-events', () => {
           const eachTime = () => {
             describe('the listener', () => {
               it('is called each time', ctx => {
-                return [Symbol(), Symbol(), Symbol()].reduce((prev, arg, n) => {
-                  return prev.then(() => emit(ctx.event, arg)).then(() => {
-                    assert(ctx.listener.callCount === n + 1)
-                    const { args: [value] } = ctx.listener.getCall(n)
-                    assert(value === arg)
-                  })
-                }, Promise.resolve())
+                [Symbol(), Symbol(), Symbol()].forEach((arg, n) => {
+                  ctx.emitter.emit(ctx.event, arg)
+                  assert(ctx.listener.callCount === n + 1)
+                  const { args: [value] } = ctx.listener.getCall(n)
+                  assert(value === arg)
+                })
               })
             })
           }
@@ -142,13 +140,12 @@ describe('expose-events', () => {
             describe('the listener', () => {
               it('is called only once', ctx => {
                 const first = Symbol()
-                return [first, Symbol(), Symbol()].reduce((prev, arg, n) => {
-                  return prev.then(() => emit(ctx.event, arg)).then(() => {
-                    assert(ctx.listener.calledOnce)
-                    const { args: [value] } = ctx.listener.firstCall
-                    assert(value === first)
-                  })
-                }, Promise.resolve())
+                ;[first, Symbol(), Symbol()].forEach((arg, n) => {
+                  ctx.emitter.emit(ctx.event, arg)
+                  assert(ctx.listener.calledOnce)
+                  const { args: [value] } = ctx.listener.firstCall
+                  assert(value === first)
+                })
               })
             })
           }
@@ -181,9 +178,8 @@ describe('expose-events', () => {
                 const listener2 = spy()
                 ctx.emitter.on(ctx.event, listener2)
 
-                return emit(ctx.event).then(() => {
-                  assert(ctx.listener.calledBefore(listener2))
-                })
+                ctx.emitter.emit(ctx.event)
+                assert(ctx.listener.calledBefore(listener2))
               })
             })
           })
@@ -209,11 +205,10 @@ describe('expose-events', () => {
         context(`the listener was previously registered using emitter.${method}(event, listener)`, () => {
           it('is removed', ctx => {
             ctx.emitter[method](ctx.event, ctx.listener)
-
             ctx.emitter.removeListener(ctx.event, ctx.listener)
-            return emit(ctx.event).then(() => {
-              assert(ctx.listener.notCalled)
-            })
+
+            ctx.emitter.emit(ctx.event)
+            assert(ctx.listener.notCalled)
           })
         })
       })
@@ -227,13 +222,13 @@ describe('expose-events', () => {
 
       // Test added for code coverage completeness.
       context('another listener was also registered for the same event', () => {
-        it('is not removed', async ctx => {
+        it('is not removed', ctx => {
           const listener2 = spy()
           ctx.emitter.on(ctx.event, ctx.listener)
           ctx.emitter.on(ctx.event, listener2)
-
           ctx.emitter.removeListener(ctx.event, ctx.listener)
-          await emit(ctx.event)
+
+          ctx.emitter.emit(ctx.event)
           assert(ctx.listener.notCalled)
           assert(listener2.calledOnce)
         })
@@ -243,34 +238,78 @@ describe('expose-events', () => {
     describe(`emitter.emit (event, ...params)`, () => {
       beforeEach(ctx => ctx.listener = spy())
 
-      it('starts calling listeners asynchronously', async ctx => {
+      it('calls listeners synchronously', ctx => {
         ctx.emitter.on(ctx.event, ctx.listener)
 
         ctx.emitter.emit(ctx.event)
-        assert(ctx.listener.notCalled)
-
-        // The emit(...params) helper already does this. nextTick is shown here
-        // for clarity.
-        await new Promise(resolve => process.nextTick(resolve))
         assert(ctx.listener.calledOnce)
       })
 
-      context('listers are only added after emitting (but synchronously)', () => {
-        it('does not call them', async ctx => {
-          const p = emit()
-
+      context('listers are only added after emitting', () => {
+        it('does not call them', ctx => {
+          ctx.emitter.emit(ctx.event)
           ctx.emitter.on(ctx.event, ctx.listener)
-
-          await p
           assert(ctx.listener.notCalled)
         })
       })
 
-      it('calls the listeners with all params', async ctx => {
+      context('listers are added while emitting', () => {
+        it('calls them', ctx => {
+          ctx.emitter.on(ctx.event, () => {
+            ctx.emitter.on(ctx.event, ctx.listener)
+          })
+
+          ctx.emitter.emit(ctx.event)
+          assert(ctx.listener.calledOnce)
+        })
+      })
+
+      context('listers are removed while emitting', () => {
+        it('does not call them', ctx => {
+          ctx.emitter.on(ctx.event, () => {
+            ctx.emitter.removeListener(ctx.event, ctx.listener)
+          })
+          ctx.emitter.on(ctx.event, ctx.listener)
+
+          ctx.emitter.emit(ctx.event)
+          assert(ctx.listener.notCalled)
+        })
+      })
+
+      context('a listener throws', () => {
+        beforeEach(ctx => {
+          ctx.err = Symbol()
+          ctx.emitter.on(ctx.event, () => { throw ctx.err })
+          ctx.emitter.on(ctx.event, ctx.listener)
+        })
+
+        describe('the next listener', () => {
+          it('is not called', ctx => {
+            ctx.emitter.emit(ctx.event)
+            assert(ctx.listener.notCalled)
+          })
+        })
+
+        describe('the error', () => {
+          it('is rethrown asynchronously', ctx => {
+            ctx.emitter.emit(ctx.event)
+
+            assert(ctx.process.nextTick.calledOnce)
+            try {
+              ctx.process.nextTick.yield()
+              assert(false, 'nextTick should throw')
+            } catch (err) {
+              assert(err === ctx.err)
+            }
+          })
+        })
+      })
+
+      it('calls the listeners with all params', ctx => {
         const params = [Symbol(), Symbol(), Symbol()]
         ctx.emitter.on(ctx.event, ctx.listener)
 
-        await emit(ctx.event, ...params)
+        ctx.emitter.emit(ctx.event, ...params)
         const { args: allParams } = ctx.listener.firstCall
         assert.deepStrictEqual(allParams, params)
       })
