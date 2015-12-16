@@ -1,7 +1,17 @@
 import Configuration from './lib/Configuration'
+import Orchestrator from './lib/Orchestrator'
 
-const C = new Configuration(5)
+const configuration = new Configuration(5)
+const orchestrator = new Orchestrator(configuration)
 
+orchestrator.log.on('data', item => console.log(item))
+
+orchestrator.run().catch(err => {
+  console.error(err && err.stack || err)
+  process.exit(1)
+})
+
+/*
 let crashed = false
 let progress = 0
 let lastProgress = -1
@@ -82,3 +92,4 @@ function repeat (done, fail) {
   return new Promise(resolve => resolve(step()))
     .then(() => repeat(done, fail), fail)
 }
+*/

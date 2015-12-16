@@ -43,7 +43,6 @@ export default class Process {
   advanceClock () {
     this._vectorClock++
     this._clock.next()
-    return this.idle()
   }
 
   get currentTime () {
@@ -51,13 +50,6 @@ export default class Process {
       sinceEpoch: this._clock.now,
       vector: this._vectorClock
     }
-  }
-
-  idle () {
-    const { _raft: { currentRole: { scheduler } } } = this
-    if (!scheduler || scheduler.aborted) return Promise.resolve()
-
-    return new Promise(resolve => scheduler.asap(() => resolve(this.idle()), resolve))
   }
 
   joinInitialCluster (addresses) {

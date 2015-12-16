@@ -1,12 +1,12 @@
 import { Duplex, Readable } from 'stream'
 
-const NonPeer = { [Symbol.for('Non-peer address')]: true }
+const NonPeer = { [Symbol('Non-peer address')]: true }
 
 export default class Network {
   constructor ({ getProcess }) {
     this._getProcess = getProcess
 
-    this._counter = 0
+    this._messageCount = 0
     this._streams = new Map()
     this._queue = []
   }
@@ -20,66 +20,63 @@ export default class Network {
 
     return {
       listen: () => nonPeerStream,
-      connect: ({ address: peerAddress, readWrite = true, writeOnly = false }) => {
-        let stream = byOrigin.get(peerAddress)
-        if (!stream) {
-          if (readWrite) {
-            stream = new Duplex({
-              objectMode: true,
-              read () {},
-              write: (message, _, done) => {
-                this.enqueue(serverAddress, peerAddress, message)
-                done()
-              }
-            })
+      connect: ({ address: peerAddress, writeOnly = false }) => {
+        if (byOrigin.has(peerAddress)) return byOrigin.get(peerAddress)
 
-            byOrigin.set(peerAddress, stream)
-          } else if (writeOnly) {
-            stream = new Readable({ objectMode: true, read () {} })
+        const stream = new Duplex({
+          objectMode: true,
+          read () {},
+          write: (message, _, done) => {
+            this.enqueue(serverAddress, peerAddress, message)
+            done()
           }
+        })
+        if (!writeOnly) {
+          byOrigin.set(peerAddress, stream)
         }
-
         return stream
       },
       destroy: () => this._streams.delete(serverAddress)
     }
   }
 
-  enqueue (sender, receiver, message) {
+  enqueue (sender, receiver, payload) {
     this._queue.push({
-      delivered: 0,
-      id: this._counter++,
-      message,
+      deliveries: 0,
+      id: this._messageCount++,
+      payload,
+      queued: 1,
       receiver,
       sender,
       timestamp: this._getProcess(sender).currentTime
     })
   }
 
-  hasQueued () {
-    return this._queue.length > 0
-  }
-
   dequeue () {
     if (!this.hasQueued()) return null
 
-    const entry = this._queue.shift()
+    const item = this._queue.shift()
+    const { receiver, sender, payload } = item
     return Object.assign({
       deliver: () => {
-        const byOrigin = this._streams.get(entry.receiver)
+        const byOrigin = this._streams.get(receiver)
         if (!byOrigin) return false
 
-        const stream = byOrigin.get(entry.sender)
+        const stream = byOrigin.get(sender)
         if (!stream) return false
 
-        stream.push(entry.message)
-        entry.delivered++
+        item.deliveries++
+        stream.push(payload)
         return true
       },
-      requeue: () => {
-        const position = this._queue[Math.floor(Math.random() * this._queue.length)]
-        this._queue.splice(position, 0, entry)
+      requeue: (position = Math.floor(Math.random() * (this._queue.length + 1))) => {
+        item.queued++
+        this._queue.splice(position, 0, item)
       }
-    }, entry)
+    }, item)
+  }
+
+  hasQueued () {
+    return this._queue.length > 0
   }
 }
