@@ -507,7 +507,7 @@ describe('roles/Follower', () => {
         context('is behind', () => {
           beforeEach(async ctx => {
             await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 10 })
-            ctx.log.commit.resetHistory()
+            ctx.log.commit.reset()
           })
 
           it('does not commit the log', async ctx => {

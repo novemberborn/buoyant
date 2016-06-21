@@ -289,7 +289,7 @@ describe('roles/Leader', () => {
           // If the same conflictingIndex is received it must now equal the
           // nextIndex for the peer, which means no AppendEntries message should
           // be sent as a result.
-          ctx.peers[1].send.resetHistory()
+          ctx.peers[1].send.reset()
           ctx.leader.handleRejectEntries(ctx.peers[1], 1, { conflictingIndex: 1 })
           assert(ctx.peers[1].send.notCalled)
         })
@@ -334,7 +334,7 @@ describe('roles/Leader', () => {
           // rejecting an earlier lastLogTerm should not result in an
           // AppendEntries message being sent to the peer.
           ctx.leader.handleAcceptEntries(ctx.peer, 1, { lastLogIndex: 3 })
-          ctx.peer.send.resetHistory()
+          ctx.peer.send.reset()
 
           ctx.leader.handleRejectEntries(ctx.peer, 1, { conflictingIndex: 2 })
           assert(ctx.peer.send.notCalled)
@@ -347,7 +347,7 @@ describe('roles/Leader', () => {
           // nextIndex of 3. Converge so nextIndex is 1.
           const peer = ctx.peers[1]
           ctx.leader.handleRejectEntries(peer, 1, { conflictingIndex: 1 })
-          peer.send.resetHistory()
+          peer.send.reset()
 
           // Now pretend to accept the entry at index 1.
           ctx.leader.handleAcceptEntries(peer, 1, { lastLogIndex: 1 })
@@ -420,7 +420,7 @@ describe('roles/Leader', () => {
 
         // Send a heartbeat message. It'll include the commit index of the
         // leader.
-        ctx.peer.send.resetHistory()
+        ctx.peer.send.reset()
         ctx.leader.sendHeartbeat() // First heartbeat is skipped
         ctx.leader.sendHeartbeat()
         wasHeartbeat(ctx.peer.send.firstCall, { prevLogIndex: first.index - 1, leaderCommit: first.index })
@@ -481,7 +481,7 @@ describe('roles/Leader', () => {
         // Converge so nextIndex is 1.
         for (const peer of ctx.peers) {
           ctx.leader.handleRejectEntries(peer, 1, { conflictingIndex: 1 })
-          peer.send.resetHistory()
+          peer.send.reset()
         }
 
         supportAppend(ctx)
@@ -499,7 +499,7 @@ describe('roles/Leader', () => {
 
       it('does not send the next heartbeat message', ctx => {
         for (const peer of ctx.peers) {
-          peer.send.resetHistory()
+          peer.send.reset()
         }
 
         ctx.leader.start()
@@ -512,7 +512,7 @@ describe('roles/Leader', () => {
       context('another heartbeat interval passes', () => {
         it('sends the heartbeat message', ctx => {
           for (const peer of ctx.peers) {
-            peer.send.resetHistory()
+            peer.send.reset()
           }
 
           ctx.leader.start()

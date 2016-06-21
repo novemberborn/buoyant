@@ -118,8 +118,8 @@ describe('InputConsumer', () => {
             }))
 
             ctx.consumer.start()
-            ctx.peers[0].messages.canTake.resetHistory()
-            ctx.peers[1].messages.canTake.resetHistory()
+            ctx.peers[0].messages.canTake.reset()
+            ctx.peers[1].messages.canTake.reset()
             ctx.peers[2].messages.canTake.returns(true)
 
             fulfil()
@@ -296,7 +296,7 @@ describe('InputConsumer', () => {
             // Reset first round of canTake() calls.
             const canTakes = ctx.peers.map(peer => peer.messages.canTake).concat(ctx.nonPeerReceiver.messages.canTake)
             for (const stub of canTakes) {
-              stub.resetHistory()
+              stub.reset()
             }
             assert(canTakes[0].notCalled)
 
@@ -338,7 +338,7 @@ describe('InputConsumer', () => {
     }
     const resetTakes = ctx => {
       for (const canTake of ctx.canTakes) {
-        canTake.resetHistory()
+        canTake.reset()
       }
       assert(ctx.canTakes[0].notCalled)
     }
