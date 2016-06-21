@@ -31,7 +31,7 @@ No. The 1.0 release will be the first production-ready version.
 
 ## Requirements
 
-Buoyant requires at least [Node.js](https://nodejs.org) v5.0.0.
+Buoyant requires at least [Node.js](https://nodejs.org) v6.2.2.
 
 ## Installation
 
