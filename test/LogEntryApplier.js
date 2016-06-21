@@ -124,7 +124,9 @@ describe('LogEntryApplier', () => {
       context('applying the entry succeeded', () => {
         it('sets lastApplied to the entry’s index', async ctx => {
           let doApply
-          ctx.applyEntry.returns(new Promise(resolve => doApply = resolve))
+          ctx.applyEntry.returns(new Promise(resolve => {
+            doApply = resolve
+          }))
 
           ctx.applier.enqueue(new Entry(3, 1, Symbol()))
           assert(ctx.applier.lastApplied === 0)
@@ -137,7 +139,9 @@ describe('LogEntryApplier', () => {
         context('there is a resolve callback for the entry', () => {
           it('is called with the result', async ctx => {
             let doApply
-            ctx.applyEntry.returns(new Promise(resolve => doApply = resolve))
+            ctx.applyEntry.returns(new Promise(resolve => {
+              doApply = resolve
+            }))
 
             const wasApplied = spy()
             ctx.applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
@@ -156,13 +160,15 @@ describe('LogEntryApplier', () => {
         describe('the crashHandler', () => {
           it('is called with the error', async ctx => {
             let doFail
-            ctx.applyEntry.returns(new Promise((_, reject) => doFail = reject))
+            ctx.applyEntry.returns(new Promise((resolve, reject) => {
+              doFail = reject
+            }))
 
             ctx.applier.enqueue(new Entry(1, 1, Symbol()))
 
             const err = Symbol()
             doFail(err)
-            await Promise.resolve()
+            await new Promise(resolve => setImmediate(resolve))
             assert(ctx.crashHandler.calledOnce)
             const { args: [reason] } = ctx.crashHandler.firstCall
             assert(reason === err)
@@ -210,7 +216,9 @@ describe('LogEntryApplier', () => {
     context('entries are being applied', () => {
       it('returns a promise that is fulfilled when the last entry has been applied', async ctx => {
         let doApply
-        ctx.applyEntry.returns(new Promise(resolve => doApply = resolve))
+        ctx.applyEntry.returns(new Promise(resolve => {
+          doApply = resolve
+        }))
 
         const wasApplied = spy()
         ctx.applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)

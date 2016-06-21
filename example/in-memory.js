@@ -62,15 +62,15 @@ const cluster = new Map(['alice', 'bob'].map(serverId => {
 
 for (const [address, server] of cluster) {
   const joinAddresses = Array.from(cluster.keys()).filter(peerAddress => peerAddress !== address)
-  server.join(joinAddresses).then(() => {
-    console.log(`${chalk.red(server.id)} joined`)
-  }, err => console.error(`${chalk.red(server.id)} listen error`, err && err.stack || err))
+  server.join(joinAddresses)
+    .then(() => console.log(`${chalk.red(server.id)} joined`))
+    .catch(err => console.error(`${chalk.red(server.id)} listen error`, err && err.stack || err))
 }
 
-Promise.race(Array.from(cluster, ([, server]) => {
-  return new Promise(resolve => server.once('leader', () => resolve(server)))
-})).then(leader => {
-  return leader.append('hello world').then(result => {
-    console.log(`${chalk.red(leader.id)} append result`, result)
+Promise.race(
+  Array.from(cluster, ([, server]) => {
+    return new Promise(resolve => server.once('leader', () => resolve(server)))
   })
+).then(leader => {
+  return leader.append('hello world').then(result => console.log(`${chalk.red(leader.id)} append result`, result))
 }).catch(err => console.error(err && err.stack || err))

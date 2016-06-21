@@ -6,7 +6,9 @@ import { spy } from 'sinon'
 import Timers from '../lib/Timers'
 
 describe('Timers', () => {
-  before(ctx => ctx.clock = installClock(0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout']))
+  before(ctx => {
+    ctx.clock = installClock(0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
+  })
   after(ctx => ctx.clock.uninstall())
 
   beforeEach(ctx => {

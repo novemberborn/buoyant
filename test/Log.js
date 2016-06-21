@@ -235,7 +235,9 @@ describe('Log', () => {
 
     context('after the entry has been persisted', () => {
       beforeEach(ctx => {
-        ctx.persistEntries.returns(new Promise(resolve => ctx.finishPersist = resolve))
+        ctx.persistEntries.returns(new Promise(resolve => {
+          ctx.finishPersist = resolve
+        }))
       })
 
       it('sets lastIndex', async ctx => {
@@ -312,7 +314,9 @@ describe('Log', () => {
 
     context('after the entries have been persisted', () => {
       const makeFinisher = ctx => {
-        ctx.persistEntries.returns(new Promise(resolve => ctx.finishPersist = resolve))
+        ctx.persistEntries.returns(new Promise(resolve => {
+          ctx.finishPersist = resolve
+        }))
       }
       beforeEach(makeFinisher)
 

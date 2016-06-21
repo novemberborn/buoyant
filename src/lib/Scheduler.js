@@ -74,8 +74,6 @@ export default class Scheduler {
     this.busy = true
     // Note that the operations can't return results, just that they completed
     // successfully.
-    const result = promise.then(() => undefined, err => this.crash(err))
-    promise.then(next)
-    return result
+    return promise.then(next).catch(err => this.crash(err))
   }
 }

@@ -231,14 +231,18 @@ describe('Raft', () => {
     })
 
     context('an address fails to connect', () => {
-      beforeEach(ctx => ctx.connect = stub())
+      beforeEach(ctx => {
+        ctx.connect = stub()
+      })
 
       context('another address is not yet connected', () => {
         context('that address connects', () => {
           it('does not instantiate a peer', async ctx => {
             ctx.connect.onCall(0).returns(Promise.reject())
             let connectOther
-            ctx.connect.onCall(1).returns(new Promise(resolve => connectOther = resolve))
+            ctx.connect.onCall(1).returns(new Promise(resolve => {
+              connectOther = resolve
+            }))
 
             const { addresses, connect, nonPeerStream } = ctx
             await getReason(ctx.raft.joinInitialCluster({ addresses, connect, nonPeerStream }))

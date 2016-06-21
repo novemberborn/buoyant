@@ -71,7 +71,7 @@ export default class LogEntryApplier {
       // No-ops do not need to be applied.
       next(undefined)
     } else {
-      this.applyEntry(entry).then(next, this.crashHandler)
+      this.applyEntry(entry).then(next).catch(this.crashHandler)
     }
   }
 }

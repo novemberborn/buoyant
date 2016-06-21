@@ -112,6 +112,7 @@ export default class Leader {
         if (this.destroyed) return
 
         this.convertToFollower([peer, message])
+        return
       })
     }
 
@@ -220,6 +221,8 @@ export default class Leader {
             this.updateFollower(peer, state, false)
           }
           this.skipNextHeartbeat = true
+
+          return
         }))
     })
   }

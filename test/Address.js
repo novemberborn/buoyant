@@ -48,7 +48,9 @@ describe('Address', () => {
         }
       ].forEach(({ url, fields }) => {
         context(`with url <${url}>`, () => {
-          before(ctx => ctx.address = new Address(url))
+          before(ctx => {
+            ctx.address = new Address(url)
+          })
 
           for (const field in fields) {
             const value = fields[field]

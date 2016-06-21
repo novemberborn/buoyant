@@ -6,6 +6,14 @@ import { install as installClock } from 'lolex'
 import { spy, stub } from 'sinon'
 
 import {
+  AppendEntries, RejectEntries, AcceptEntries,
+  RequestVote, DenyVote,
+  Noop
+} from '../lib/symbols'
+
+import Entry from '../lib/Entry'
+
+import {
   setupConstructors,
   testFollowerConversion,
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
@@ -15,16 +23,10 @@ import {
 import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
 import { getReason } from './support/utils'
 
-import {
-  AppendEntries, RejectEntries, AcceptEntries,
-  RequestVote, DenyVote,
-  Noop
-} from '../lib/symbols'
-
-import Entry from '../lib/Entry'
-
 describe('roles/Leader', () => {
-  before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))
+  before(ctx => {
+    ctx.clock = installClock(0, ['setInterval', 'clearInterval'])
+  })
   after(ctx => ctx.clock.uninstall())
 
   setupConstructors(resolve(__dirname, '../lib/roles/Leader'))
@@ -461,7 +463,9 @@ describe('roles/Leader', () => {
     context('the leader is destroyed while appending the value', () => {
       it('rejects the returned promise', async ctx => {
         let appended
-        ctx.log.appendValue.returns(new Promise(resolve => appended = resolve))
+        ctx.log.appendValue.returns(new Promise(resolve => {
+          appended = resolve
+        }))
 
         const p = ctx.leader.append()
         ctx.leader.destroy()

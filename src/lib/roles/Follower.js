@@ -119,6 +119,8 @@ export default class Follower {
           type: GrantVote,
           term: this.state.currentTerm
         })
+
+        return
       })
     } else if (term > this.state.currentTerm) {
       // Update the current term if the candidate's is newer, even if no vote
@@ -187,6 +189,8 @@ export default class Follower {
         // entries than the leader attempted to send.
         lastLogIndex: this.log.lastIndex
       })
+
+      return
     })
   }
 }

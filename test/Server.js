@@ -8,6 +8,10 @@ import { getReason } from './support/utils'
 import exposeEvents from '../lib/expose-events'
 import Address from '../lib/Address'
 
+function schedulePromiseCallback (cb) {
+  Promise.resolve().then(cb).catch(() => undefined)
+}
+
 describe('Server', () => {
   before(ctx => {
     ctx.exposeEvents = spy((...args) => exposeEvents(...args))
@@ -398,7 +402,7 @@ describe('Server', () => {
           // The handling of the listening failure is asynchronous, meaning
           // the server can be closed between the error occurring and it
           // being handled. Set that up here.
-          Promise.resolve().then(() => ctx.server.close())
+          schedulePromiseCallback(() => ctx.server.close())
           assert(await getReason(ctx.server.join()) === getError(ctx))
         })
       })
@@ -408,7 +412,7 @@ describe('Server', () => {
           // The handling of the listening failure is asynchronous, meaning
           // the server can be closed between the error occurring and it
           // being handled. Set that up here.
-          Promise.resolve().then(() => ctx.server.destroy())
+          schedulePromiseCallback(() => ctx.server.destroy())
           assert(await getReason(ctx.server.join()) === getError(ctx))
         })
       })

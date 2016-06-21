@@ -85,6 +85,8 @@ export default class Raft {
           if (!aborted) {
             resolve(new Peer(address, stream))
           }
+
+          return
         }).catch(reject)
         abort = () => {
           aborted = true
@@ -103,6 +105,8 @@ export default class Raft {
       this.peers = peers
       // Now enter the initial follower state.
       this.convertToFollower()
+
+      return
     }).catch(err => {
       // Upon the first connection error abort any other connection attempts.
       for (const [, abort] of connectingPeers) {

@@ -5,6 +5,11 @@ import assert from 'power-assert'
 import { spy, stub } from 'sinon'
 
 import {
+  AppendEntries, RejectEntries,
+  RequestVote, DenyVote, GrantVote
+} from '../lib/symbols'
+
+import {
   setupConstructors,
   testFollowerConversion,
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
@@ -12,11 +17,6 @@ import {
   testSchedulerDestruction, testSchedulerInstantiation
 } from './support/role-tests'
 import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
-
-import {
-  AppendEntries, RejectEntries,
-  RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
 
 describe('roles/Candidate', () => {
   setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
@@ -91,7 +91,9 @@ describe('roles/Candidate', () => {
     context('the candidate was destroyed while persisting the state', () => {
       it('does not send RequestVote messages', async ctx => {
         let persisted
-        ctx.state.nextTerm.returns(new Promise(resolve => persisted = resolve))
+        ctx.state.nextTerm.returns(new Promise(resolve => {
+          persisted = resolve
+        }))
 
         ctx.candidate.requestVote()
         ctx.candidate.destroy()
@@ -103,7 +105,9 @@ describe('roles/Candidate', () => {
 
       it('does not set the election timer', async ctx => {
         let persisted
-        ctx.state.nextTerm.returns(new Promise(resolve => persisted = resolve))
+        ctx.state.nextTerm.returns(new Promise(resolve => {
+          persisted = resolve
+        }))
 
         ctx.candidate.requestVote()
         ctx.candidate.destroy()

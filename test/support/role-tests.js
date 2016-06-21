@@ -46,7 +46,9 @@ export function testFollowerConversion (label, getRole) {
     context(`the ${label} was destroyed while persisting the state`, () => {
       it('does not convert to follower', async ctx => {
         let persisted
-        ctx.state.setTerm.returns(new Promise(resolve => persisted = resolve))
+        ctx.state.setTerm.returns(new Promise(resolve => {
+          persisted = resolve
+        }))
 
         ctx.role.handleMessage(ctx.peer, ctx.message)
         ctx.role.destroy()

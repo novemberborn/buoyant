@@ -113,7 +113,9 @@ describe('InputConsumer', () => {
         context('the promise is fulfilled', () => {
           it('consults the next peer', async ctx => {
             let fulfil
-            ctx.scheduler.asap.onCall(0).returns(new Promise(resolve => fulfil = resolve))
+            ctx.scheduler.asap.onCall(0).returns(new Promise(resolve => {
+              fulfil = resolve
+            }))
 
             ctx.consumer.start()
             ctx.peers[0].messages.canTake.resetHistory()
@@ -286,7 +288,9 @@ describe('InputConsumer', () => {
         context('a message becomes available', () => {
           it('consults the first peer (and so forth…)', async ctx => {
             let available
-            ctx.peers[2].messages.await.onCall(0).returns(new Promise(resolve => available = resolve))
+            ctx.peers[2].messages.await.onCall(0).returns(new Promise(resolve => {
+              available = resolve
+            }))
             ctx.consumer.start()
 
             // Reset first round of canTake() calls.
@@ -323,7 +327,9 @@ describe('InputConsumer', () => {
   })
 
   describe('#stop ()', () => {
-    beforeEach(ctx => ctx.canTakes = ctx.peers.map(peer => peer.messages.canTake).concat(ctx.nonPeerReceiver.messages.canTake))
+    beforeEach(ctx => {
+      ctx.canTakes = ctx.peers.map(peer => peer.messages.canTake).concat(ctx.nonPeerReceiver.messages.canTake)
+    })
 
     const noTakes = (ctx, canTakes = ctx.canTakes) => {
       for (const canTake of canTakes) {
@@ -343,7 +349,9 @@ describe('InputConsumer', () => {
     context('while waiting for the scheduler-returned promise', () => {
       it('prevents consuming any messages once the promise fulfills', async ctx => {
         let fulfil
-        ctx.scheduler.asap.onCall(0).returns(new Promise(resolve => fulfil = resolve))
+        ctx.scheduler.asap.onCall(0).returns(new Promise(resolve => {
+          fulfil = resolve
+        }))
         ctx.canTakes[0].returns(true)
 
         ctx.consumer.start()
@@ -360,7 +368,9 @@ describe('InputConsumer', () => {
     context('while waiting for messages to become available', () => {
       it('prevents consuming any messages once a message becomes available', async ctx => {
         let available
-        ctx.peers[2].messages.await.onCall(0).returns(new Promise(resolve => available = resolve))
+        ctx.peers[2].messages.await.onCall(0).returns(new Promise(resolve => {
+          available = resolve
+        }))
 
         ctx.consumer.start()
         resetTakes(ctx)
@@ -399,7 +409,9 @@ describe('InputConsumer', () => {
         ctx.nonPeerReceiver.messages.canTake.returns(true)
         ctx.nonPeerReceiver.messages.take.returns([])
         let create
-        ctx.nonPeerReceiver.createPeer.returns(new Promise(resolve => create = resolve))
+        ctx.nonPeerReceiver.createPeer.returns(new Promise(resolve => {
+          create = resolve
+        }))
 
         ctx.consumer.start()
         assert(ctx.nonPeerReceiver.createPeer.calledOnce)

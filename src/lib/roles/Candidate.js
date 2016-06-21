@@ -88,6 +88,8 @@ export default class Candidate {
         // complicate the logic. As the server isn't expected to remain a
         // candidate for very long there shouldn't be too many timers created.
         this.timeoutObject = this.timers.setTimeout(() => this.requestVote(), this.electionTimeout)
+
+        return
       })
     })
   }
@@ -101,6 +103,7 @@ export default class Candidate {
         if (this.destroyed) return
 
         this.convertToFollower([peer, message])
+        return
       })
     }
 

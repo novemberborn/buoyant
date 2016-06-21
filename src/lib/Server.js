@@ -74,7 +74,7 @@ export default class Server {
       this._closeInProgress = Promise.all([
         transport && new Promise(resolve => resolve(transport.destroy())),
         this._raft.close()
-      ]).then(() => {})
+      ]).then(() => undefined)
     }
 
     return this._closeInProgress
@@ -90,7 +90,7 @@ export default class Server {
     this._closeInProgress = Promise.all([
       transport && new Promise(resolve => resolve(transport.destroy())),
       this._raft.destroy()
-    ]).then(() => {})
+    ]).then(() => undefined)
 
     return this._closeInProgress
   }

@@ -6,9 +6,9 @@ import Scheduler from '../lib/Scheduler'
 
 function remainsPending (promise) {
   return new Promise((resolve, reject) => {
-    promise.then(
-      value => reject(new Error(`Promise was fulfilled with ${value}`)),
-      reason => reject(new Error(`Promise was rejected with ${reason}`)))
+    promise
+      .then(value => reject(new Error(`Promise was fulfilled with ${value}`)))
+      .catch(reason => reject(new Error(`Promise was rejected with ${reason}`)))
     // Can't really tell if the promise remains pending, and can't wait too long
     // either of course…
     setImmediate(() => resolve(true))
@@ -87,7 +87,7 @@ describe('Scheduler', () => {
             const err = Symbol()
             ctx.scheduler.asap(null, () => Promise.reject(err))
 
-            await Promise.resolve()
+            await new Promise(resolve => setImmediate(resolve))
             assert(ctx.crashHandler.calledOnce)
             const { args: [reason] } = ctx.crashHandler.firstCall
             assert(reason === err)

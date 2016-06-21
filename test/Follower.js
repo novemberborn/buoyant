@@ -6,6 +6,13 @@ import { install as installClock } from 'lolex'
 import { spy, stub } from 'sinon'
 
 import {
+  AppendEntries, RejectEntries, AcceptEntries,
+  RequestVote, DenyVote, GrantVote
+} from '../lib/symbols'
+
+import Entry from '../lib/Entry'
+
+import {
   setupConstructors,
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
@@ -13,15 +20,10 @@ import {
 } from './support/role-tests'
 import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
 
-import {
-  AppendEntries, RejectEntries, AcceptEntries,
-  RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
-
-import Entry from '../lib/Entry'
-
 describe('roles/Follower', () => {
-  before(ctx => ctx.clock = installClock(0, ['setInterval', 'clearInterval']))
+  before(ctx => {
+    ctx.clock = installClock(0, ['setInterval', 'clearInterval'])
+  })
   after(ctx => ctx.clock.uninstall())
 
   setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
@@ -61,7 +63,9 @@ describe('roles/Follower', () => {
     })
 
     context('there’s a message to be replayed', () => {
-      beforeEach(ctx => ctx.message = Symbol())
+      beforeEach(ctx => {
+        ctx.message = Symbol()
+      })
 
       it('handles the message', ctx => {
         spy(ctx.follower, 'handleMessage')
@@ -198,7 +202,9 @@ describe('roles/Follower', () => {
 
         it('returns a promise for when the term is updated', async ctx => {
           let updated
-          ctx.state.setTerm.returns(new Promise(resolve => updated = resolve))
+          ctx.state.setTerm.returns(new Promise(resolve => {
+            updated = resolve
+          }))
 
           const p = ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
 
@@ -223,7 +229,9 @@ describe('roles/Follower', () => {
       context('the follower was destroyed while persisting the state', () => {
         it('does not send a GrantVote message to the candidate', async ctx => {
           let persisted
-          ctx.state.setTermAndVote.returns(new Promise(resolve => persisted = resolve))
+          ctx.state.setTermAndVote.returns(new Promise(resolve => {
+            persisted = resolve
+          }))
 
           ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
           ctx.follower.destroy()
@@ -413,7 +421,9 @@ describe('roles/Follower', () => {
         context('the follower was destroyed while persisting the entries or state', () => {
           it('does not send an AcceptEntries message to the candidate', async ctx => {
             let persisted
-            ctx.state.setTerm.returns(new Promise(resolve => persisted = resolve))
+            ctx.state.setTerm.returns(new Promise(resolve => {
+              persisted = resolve
+            }))
 
             ctx.follower.handleAppendEntries(ctx.peer, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
             ctx.follower.destroy()
@@ -446,7 +456,9 @@ describe('roles/Follower', () => {
         context('the follower was destroyed while persisting the entries', () => {
           it('does not send an AcceptEntries message to the candidate', async ctx => {
             let persisted
-            ctx.log.mergeEntries.returns(new Promise(resolve => persisted = resolve))
+            ctx.log.mergeEntries.returns(new Promise(resolve => {
+              persisted = resolve
+            }))
 
             ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
             ctx.follower.destroy()

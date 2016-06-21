@@ -187,7 +187,7 @@ describe('expose-events', () => {
       })
     })
 
-    describe(`emitter.removeListener (event, listener)`, () => {
+    describe('emitter.removeListener (event, listener)', () => {
       beforeEach(ctx => {
         ctx.event = Symbol
         ctx.listener = spy()
@@ -235,8 +235,10 @@ describe('expose-events', () => {
       })
     })
 
-    describe(`emitter.emit (event, ...params)`, () => {
-      beforeEach(ctx => ctx.listener = spy())
+    describe('emitter.emit (event, ...params)', () => {
+      beforeEach(ctx => {
+        ctx.listener = spy()
+      })
 
       it('calls listeners synchronously', ctx => {
         ctx.emitter.on(ctx.event, ctx.listener)

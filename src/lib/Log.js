@@ -116,6 +116,8 @@ export default class Log {
 
       this.lastIndex = last.index
       this.lastTerm = last.term
+
+      return
     })
   }
 
