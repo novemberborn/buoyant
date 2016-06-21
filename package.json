@@ -34,12 +34,13 @@
     "test": "mocha",
     "posttest": "npm run lint",
     "precoverage": "rimraf coverage",
-    "coverage": "nyc --reporter=lcov --reporter=text npm test"
+    "coverage": "npm run build -- --plugins __coverage__ && nyc npm test"
   },
   "devDependencies": {
     "@novemberborn/as-i-preach": "^3.1.1",
     "babel-cli": "^6.3.15",
     "babel-core": "^6.3.15",
+    "babel-plugin-__coverage__": "^11.0.0",
     "babel-plugin-espower": "^2.0.0",
     "babel-plugin-transform-async-to-generator": "^6.3.13",
     "babel-plugin-transform-es2015-destructuring": "^6.3.15",
@@ -49,12 +50,21 @@
     "chalk": "^1.1.1",
     "lolex": "^1.4.0",
     "mocha": "^2.3.4",
-    "nyc": "^5.0.0",
+    "nyc": "^6.6.1",
     "pirates": "^2.1.0",
     "power-assert": "^1.2.0",
     "proxyquire": "^1.7.3",
     "rimraf": "^2.4.4",
     "sinon": "^2.0.0-pre",
     "source-map-support": "^0.4.0"
+  },
+  "nyc": {
+    "instrument": false,
+    "reporter": [
+      "lcov",
+      "html",
+      "text"
+    ],
+    "sourceMap": false
   }
 }
