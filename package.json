@@ -43,9 +43,7 @@
     "babel-plugin-__coverage__": "^11.0.0",
     "babel-plugin-espower": "^2.0.0",
     "babel-plugin-transform-async-to-generator": "^6.3.13",
-    "babel-plugin-transform-es2015-destructuring": "^6.3.15",
     "babel-plugin-transform-es2015-modules-commonjs": "^6.3.16",
-    "babel-plugin-transform-es2015-parameters": "^6.3.13",
     "babel-plugin-transform-strict-mode": "^6.3.13",
     "chalk": "^1.1.1",
     "lolex": "^1.4.0",
@@ -57,6 +55,14 @@
     "rimraf": "^2.4.4",
     "sinon": "^2.0.0-pre",
     "source-map-support": "^0.4.0"
+  },
+  "babel": {
+    "comments": false,
+    "compact": false,
+    "plugins": [
+      "transform-es2015-modules-commonjs",
+      "transform-strict-mode"
+    ]
   },
   "nyc": {
     "instrument": false,
