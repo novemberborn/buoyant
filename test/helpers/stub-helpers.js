@@ -1,9 +1,9 @@
-import { install as installClock } from 'lolex'
-import { stub } from 'sinon'
+const { install: installClock } = require('lolex')
+const { stub } = require('sinon')
 
-import Timers from '../../lib/Timers'
+const { default: Timers } = require('../../lib/Timers')
 
-export function stubLog () {
+function stubLog () {
   const log = stub({
     _lastIndex () {},
     get lastIndex () { return this._lastIndex() },
@@ -27,7 +27,7 @@ export function stubLog () {
   return log
 }
 
-export function stubMessages () {
+function stubMessages () {
   const messages = stub({ canTake () {}, take () {}, await () {} })
   messages.canTake.returns(false)
   messages.take.returns(null)
@@ -36,11 +36,11 @@ export function stubMessages () {
 }
 
 let peerCount = 0
-export function stubPeer () {
+function stubPeer () {
   return stub({ messages: stubMessages(), send () {}, id: ++peerCount })
 }
 
-export function stubState () {
+function stubState () {
   const state = stub({
     _currentTerm () {},
     get currentTerm () { return this._currentTerm() },
@@ -51,14 +51,24 @@ export function stubState () {
     setTerm () {},
     setTermAndVote () {}
   })
+  state._currentTerm.returns(0)
+  state._votedFor.returns(null)
   state.nextTerm.returns(Promise.resolve())
   state.setTerm.returns(Promise.resolve())
   state.setTermAndVote.returns(Promise.resolve())
   return state
 }
 
-export function stubTimers () {
+function stubTimers () {
   const timers = new Timers()
   const clock = installClock(timers, 0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
   return { clock, timers }
 }
+
+Object.assign(exports, {
+  stubLog,
+  stubMessages,
+  stubPeer,
+  stubState,
+  stubTimers
+})

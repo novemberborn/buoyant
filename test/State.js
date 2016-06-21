@@ -1,176 +1,147 @@
-import { beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
-import { stub } from 'sinon'
+// https://github.com/avajs/eslint-plugin-ava/issues/127
+/* eslint-disable ava/use-t */
 
-import { getReason } from './support/utils'
+// Macro detection goes wrong
+/* eslint-disable ava/no-identical-title */
+
+import test from 'ava'
+import { stub } from 'sinon'
 
 import State from '../lib/State'
 
-describe('State', () => {
-  beforeEach(ctx => {
-    ctx.persist = stub().returns(Promise.resolve())
-    ctx.state = new State(ctx.persist)
-  })
+import macro from './helpers/macro'
 
-  const testPersistence = setup => {
-    it('persists the currentTerm and votedFor values', ctx => {
-      const { currentTerm, votedFor } = setup(ctx)
-      const { args: [{ currentTerm: persistedTerm, votedFor: persistedVote }] } = ctx.persist.firstCall
-      assert(currentTerm === persistedTerm)
-      assert(votedFor === persistedVote)
-    })
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
 
-    it('returns a promise for when it’s persisted the state', ctx => {
-      assert(setup(ctx).promise instanceof Promise)
-    })
+const throwsTypeError = macro((t, method, arg, message) => {
+  const { state } = t.context
+  t.throws(() => state[method](arg), TypeError, message)
+}, (suffix, method) => `${method}() throws a TypeError if ${method === 'replace' ? 'currentTerm' : 'term'} is ${suffix}`)
 
-    context('persisting the state succeeds', () => {
-      it('fulfills the promise', async ctx => {
-        ctx.persist.returns(Promise.resolve(Symbol()))
-        assert(await setup(ctx).promise === undefined)
-      })
-    })
+const persistCurrentTermAndVoteFor = macro((t, currentTerm, votedFor, fn) => {
+  const { persist, state } = t.context
+  fn(state, votedFor)
+  const { args: [{ currentTerm: persistedTerm, votedFor: persistedVote }] } = persist.firstCall
+  t.true(currentTerm === persistedTerm)
+  t.true(votedFor === persistedVote)
+}, prefix => `${prefix} persists the currentTerm and votedFor values`)
 
-    context('persisting the state fails', () => {
-      it('rejects the promise', async ctx => {
-        const err = Symbol()
-        ctx.persist.returns(Promise.reject(err))
-        assert(await getReason(setup(ctx).promise) === err)
-      })
-    })
-  }
+const returnsPromiseForPersistence = macro((t, currentTerm, votedFor, fn) => {
+  const { state } = t.context
+  t.true(fn(state, votedFor) instanceof Promise)
+}, prefix => `${prefix} returns a promise for when it’s persisted the state`)
 
-  describe('constructor (persist)', () => {
-    it('initializes currentTerm to 0', ctx => {
-      assert(ctx.state.currentTerm === 0)
-    })
+const fulfilsPersistencePromise = macro(async (t, currentTerm, votedFor, fn) => {
+  const { persist, state } = t.context
+  persist.returns(Promise.resolve(Symbol()))
+  t.true(await fn(state, votedFor) === undefined)
+}, prefix => `${prefix} fulfils the returned promise once the state has persisted`)
 
-    it('initializes votedFor to null', ctx => {
-      assert(ctx.state.votedFor === null)
-    })
-  })
+const rejectsPersistencePromise = macro(async (t, currentTerm, votedFor, fn) => {
+  const { persist, state } = t.context
+  const err = new Error()
+  persist.returns(Promise.reject(err))
+  const actualErr = await t.throws(fn(state, votedFor))
+  t.true(actualErr === err)
+}, prefix => `${prefix} rejects the returned promise if persisting the state fails`)
 
-  describe('#replace ({ currentTerm, votedFor })', () => {
-    ;[
-      { desc: 'not an integer', value: '🙊' },
-      { desc: 'not a safe integer', value: Number.MAX_SAFE_INTEGER + 1 },
-      { desc: 'lower than 0', value: -1 }
-    ].forEach(({ desc, value }) => {
-      context(`currentTerm is ${desc}`, () => {
-        it('throws a TypeError', ctx => {
-          assert.throws(
-            () => ctx.state.replace({ currentTerm: value, votedFor: null }),
-            TypeError,
-            'Cannot replace state: current term must be a safe, non-negative integer')
-        })
-      })
-    })
+test.beforeEach(t => {
+  const persist = stub().returns(Promise.resolve())
+  const state = new State(persist)
 
-    it('sets currentTerm to the currentTerm value', ctx => {
-      ctx.state.replace({ currentTerm: 1 })
-      assert(ctx.state.currentTerm === 1)
-    })
-
-    it('sets votedFor to the votedFor value', ctx => {
-      const votedFor = Symbol()
-      ctx.state.replace({ currentTerm: 1, votedFor })
-      assert(ctx.state.votedFor === votedFor)
-    })
-  })
-
-  describe('#nextTerm (votedFor = null)', () => {
-    context('currentTerm is the max safe integer', () => {
-      it('throws a RangeError', ctx => {
-        ctx.state.replace({ currentTerm: Number.MAX_SAFE_INTEGER })
-        assert.throws(
-          () => ctx.state.nextTerm(),
-          RangeError,
-          'Cannot advance term: it is already the maximum safe integer value')
-      })
-    })
-
-    it('increments currentTerm', ctx => {
-      ctx.state.nextTerm()
-      assert(ctx.state.currentTerm === 1)
-    })
-
-    it('sets votedFor to the votedFor value', ctx => {
-      const votedFor = Symbol()
-      ctx.state.nextTerm(votedFor)
-      assert(ctx.state.votedFor === votedFor)
-    })
-
-    testPersistence(ctx => {
-      const votedFor = Symbol()
-      return {
-        promise: ctx.state.nextTerm(votedFor),
-        currentTerm: 1,
-        votedFor
-      }
-    })
-  })
-
-  const testTermValue = method => {
-    ;[
-      { desc: 'not an integer', value: '🙊' },
-      { desc: 'not a safe integer', value: Number.MAX_SAFE_INTEGER + 1 },
-      { desc: 'lower than 1', value: 0 }
-    ].forEach(({ desc, value }) => {
-      context(`term is ${desc}`, () => {
-        it('throws a TypeError', ctx => {
-          assert.throws(
-            () => ctx.state[method](value),
-            TypeError,
-            'Cannot set term: must be a safe integer, greater than or equal to 1')
-        })
-      })
-    })
-  }
-
-  describe('#setTerm (term)', () => {
-    testTermValue('setTerm')
-
-    it('sets currentTerm to the term value', ctx => {
-      ctx.state.setTerm(42)
-      assert(ctx.state.currentTerm === 42)
-    })
-
-    it('sets votedFor to null', ctx => {
-      ctx.state.replace({ currentTerm: 1, votedFor: Symbol() })
-      ctx.state.setTerm(42)
-      assert(ctx.state.votedFor === null)
-    })
-
-    testPersistence(ctx => {
-      return {
-        promise: ctx.state.setTerm(42),
-        currentTerm: 42,
-        votedFor: null
-      }
-    })
-  })
-
-  describe('#setTermAndVote (term, votedFor)', () => {
-    testTermValue('setTermAndVote')
-
-    it('sets currentTerm to the term value', ctx => {
-      ctx.state.setTermAndVote(42, Symbol())
-      assert(ctx.state.currentTerm === 42)
-    })
-
-    it('sets votedFor to the votedFor value', ctx => {
-      const votedFor = Symbol()
-      ctx.state.setTermAndVote(42, votedFor)
-      assert(ctx.state.votedFor === votedFor)
-    })
-
-    testPersistence(ctx => {
-      const votedFor = Symbol()
-      return {
-        promise: ctx.state.setTermAndVote(42, votedFor),
-        currentTerm: 42,
-        votedFor
-      }
-    })
-  })
+  Object.assign(t.context, { persist, state })
 })
+
+test('currentTerm is initialized to 0', t => {
+  const { state } = t.context
+  t.true(state.currentTerm === 0)
+})
+
+test('votedFor is initialized to null', t => {
+  const { state } = t.context
+  t.true(state.votedFor === null)
+})
+
+test('replace() sets currentTerm to the currentTerm value', t => {
+  const { state } = t.context
+  state.replace({ currentTerm: 1 })
+  t.true(state.currentTerm === 1)
+})
+
+test('replace() sets votedFor to the votedFor value', t => {
+  const { state } = t.context
+  const votedFor = Symbol()
+  state.replace({ currentTerm: 1, votedFor })
+  t.true(state.votedFor === votedFor)
+})
+
+test('nextTerm() throws a RangeError if currentTerm is already the max safe integer', t => {
+  const { state } = t.context
+  state.replace({ currentTerm: Number.MAX_SAFE_INTEGER })
+  t.throws(
+    () => state.nextTerm(),
+    RangeError,
+    'Cannot advance term: it is already the maximum safe integer value'
+  )
+})
+
+test('nextTerm() increments currentTerm', t => {
+  const { state } = t.context
+  state.nextTerm()
+  t.true(state.currentTerm === 1)
+})
+
+test('nextTerm() sets votedFor to the votedFor value', t => {
+  const { state } = t.context
+  const votedFor = Symbol()
+  state.nextTerm(votedFor)
+  t.true(state.votedFor === votedFor)
+})
+
+test('setTerm() sets currentTerm to the term value', t => {
+  const { state } = t.context
+  state.setTerm(42)
+  t.true(state.currentTerm === 42)
+})
+
+test('setTerm() sets votedFor to null', t => {
+  const { state } = t.context
+  state.replace({ currentTerm: 1, votedFor: Symbol() })
+  state.setTerm(42)
+  t.true(state.votedFor === null)
+})
+
+test('setTermAndVote() sets currentTerm to the term value', t => {
+  const { state } = t.context
+  state.setTermAndVote(42, Symbol())
+  t.true(state.currentTerm === 42)
+})
+
+test('setTermAndVote() sets votedFor to the votedFor value', t => {
+  const { state } = t.context
+  const votedFor = Symbol()
+  state.setTermAndVote(42, votedFor)
+  t.true(state.votedFor === votedFor)
+})
+
+for (const [suffix, value] of [
+  ['not an integer', '🙊'],
+  ['not a safe integer', Number.MAX_SAFE_INTEGER + 1],
+  ['lower than 0', -1]
+]) {
+  test(suffix, throwsTypeError, 'replace', { currentTerm: value, votedFor: null }, 'Cannot replace state: current term must be a safe, non-negative integer')
+  test(suffix, throwsTypeError, 'setTerm', value, 'Cannot set term: current term must be a safe, non-negative integer')
+  test(suffix, throwsTypeError, 'setTermAndVote', value, 'Cannot set term: current term must be a safe, non-negative integer')
+}
+
+for (const macro of [
+  persistCurrentTermAndVoteFor,
+  returnsPromiseForPersistence,
+  fulfilsPersistencePromise,
+  rejectsPersistencePromise
+]) {
+  test('nextTerm()', macro, 1, Symbol(), (state, votedFor) => state.nextTerm(votedFor))
+  test('setTerm()', macro, 42, null, state => state.setTerm(42))
+  test('setTermAndVote()', macro, 42, Symbol(), (state, votedFor) => state.setTermAndVote(42, votedFor))
+}

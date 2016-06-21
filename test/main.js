@@ -1,9 +1,6 @@
-import { before, beforeEach, describe, context, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import proxyquire from 'proxyquire'
 import { spy, stub } from 'sinon'
-
-import { getReason } from './support/utils'
 
 import {
   AppendEntries, AcceptEntries, RejectEntries,
@@ -13,278 +10,201 @@ import {
 import Address from '../lib/Address'
 import Entry from '../lib/Entry'
 
-describe('main', () => {
-  before(ctx => {
-    ctx.Server = spy(() => stub())
-    ctx.main = proxyquire.noCallThru()('../main', {
-      './lib/Server': function (...args) { return ctx.Server(...args) }
-    })
-  })
+import macro from './helpers/macro'
 
-  beforeEach(ctx => ctx.Server.reset())
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
 
-  it('exports symbols', ctx => {
-    assert.deepStrictEqual(ctx.main.symbols, {
-      AppendEntries, AcceptEntries, RejectEntries,
-      RequestVote, DenyVote, GrantVote,
-      Noop
-    })
-  })
+const shared = {
+  Server () {}
+}
 
-  it('exports Address', ctx => {
-    assert(ctx.main.Address === Address)
-  })
+const main = proxyquire.noCallThru()('../main', {
+  './lib/Server': function (...args) { return shared.Server(...args) }
+})
 
-  it('exports Entry', ctx => {
-    assert(ctx.main.Entry === Entry)
-  })
+const throwsTypeError = macro((t, param, value, message) => {
+  const { createServer } = t.context
+  t.throws(() => createServer({ [param]: value }), TypeError, message)
+}, (condition, param) => `createServer() throws a TypeError if the ${param} param is ${condition}`)
 
-  describe('createServer ({ address, electionTimeoutWindow, heartbeatInterval, createTransport, persistState, persistEntries, applyEntry, crashHandler })', () => {
-    before(ctx => {
-      ctx.createServer = opts => {
-        return ctx.main.createServer(Object.assign({
-          address: '///id',
-          electionTimeoutWindow: [1000, 2000],
-          heartbeatInterval: 500,
-          createTransport () {},
-          persistState () {},
-          persistEntries () {},
-          applyEntry () {},
-          crashHandler () {}
-        }, opts))
-      }
-    })
+const usingParam = macro((t, param, value) => {
+  const { createServer, Server } = t.context
+  createServer({ [param]: value })
+  t.true(Server.calledOnce)
+  const { args: [{ [param]: used }] } = Server.firstCall
+  t.true(used === value)
+}, (condition, param) => `createServer() creates a server using the ${param} param ${condition}`.trim())
 
-    const param = (name, def = () => {}) => {
-      describe(`the ${name} parameter`, def)
-    }
+const usingWrapper = macro((t, param) => {
+  const { createServer, Server } = t.context
+  createServer({ [param] () {} })
+  t.true(Server.calledOnce)
+  const { args: [{ [param]: wrapper }] } = Server.firstCall
+  t.true(typeof wrapper === 'function')
+}, (_, param) => `createServer() creates a server with a Promise-wrapper for the ${param} param`)
 
-    param('address', () => {
-      context('it is a string', () => {
-        context('it is a valid address', () => {
-          it('creates the server with an Address instance for that string', ctx => {
-            ctx.createServer({ address: '///foo' })
-            assert(ctx.Server.calledOnce)
-            const { args: [{ address }] } = ctx.Server.firstCall
-            assert(address instanceof Address)
-            assert(address.serverId === 'foo')
-          })
-        })
+function setupWrapper (context, param) {
+  const { createServer, Server } = context
+  const original = stub()
+  createServer({ [param]: original })
+  const { args: [{ [param]: wrapper }] } = Server.firstCall
+  return Object.assign({ original, wrapper }, context)
+}
 
-        context('it is invalid', () => {
-          it('causes a TypeError to be thrown', ctx => {
-            assert.throws(
-              () => ctx.createServer({ address: '🙈' }),
-              TypeError,
-              "Parameter 'address' must be a string or an Address instance")
-          })
-        })
-      })
+const wrapperPropagatesToOriginal = macro((t, param) => {
+  const { original, wrapper } = setupWrapper(t.context, param)
+  const args = Array.from(wrapper, () => Symbol())
+  wrapper(...args)
 
-      context('it is an Address instance', () => {
-        it('creates the server with the address, as-is', ctx => {
-          const address = new Address('///foo')
-          ctx.createServer({ address })
-          assert(ctx.Server.calledOnce)
-          const { args: [{ address: asIs }] } = ctx.Server.firstCall
-          assert(asIs === address)
-        })
-      })
+  t.true(original.calledOnce)
+  const { args: propagated } = original.firstCall
+  t.deepEqual(propagated, args)
+}, (_, param) => `the Promise-wrapper for the ${param} param propagates to the original function`)
 
-      context('it is not a string or an Address instance', () => {
-        it('causes a TypeError to be thrown', ctx => {
-          assert.throws(
-            () => ctx.createServer({ address: 42 }),
-            TypeError,
-            "Parameter 'address' must be a string or an Address instance")
-        })
-      })
+const wrapperFulfilsLikeOriginal = macro(async (t, param) => {
+  const { original, wrapper } = setupWrapper(t.context, param)
+  const value = Symbol()
+  original.returns(Promise.resolve(value))
+  t.true(await wrapper() === value)
+}, (_, param) => `the Promise-wrapper for the ${param} param returns a promise that is fulfilled with the value of a promise returned by the original function`)
 
-      context('the server is created', () => {
-        describe('the serverId of the address', () => {
-          it('is used as the server‘s id', ctx => {
-            const address = new Address('///foo')
-            ctx.createServer({ address })
-            assert(ctx.Server.calledOnce)
-            const { args: [{ id }] } = ctx.Server.firstCall
-            assert(id === address.serverId)
-          })
-        })
-      })
-    })
+const wrapperRejectsLikeOriginal = macro(async (t, param) => {
+  const { original, wrapper } = setupWrapper(t.context, param)
+  const err = new Error()
+  original.returns(Promise.reject(err))
+  const actualErr = await t.throws(wrapper())
+  t.true(actualErr === err)
+}, (_, param) => `the Promise-wrapper for the ${param} param returns a promise that is rejected with the reason of a promise returned by the original function`)
 
-    param('electionTimeoutWindow', () => {
-      context('it is not iterable', () => {
-        it('causes a TypeError to be thrown', ctx => {
-          assert.throws(
-            () => ctx.createServer({ electionTimeoutWindow: true }),
-            TypeError,
-            "Parameter 'electionTimeoutWindow' must be iterable")
-        })
-      })
+const wrapperFulfilsWithOriginalResult = macro(async (t, param) => {
+  const { original, wrapper } = setupWrapper(t.context, param)
+  const value = Symbol()
+  original.returns(value)
+  t.true(await wrapper() === value)
+}, (_, param) => `the Promise-wrapper for the ${param} param returns a promise that is fulfilled with the value returned by the original function`)
 
-      describe('the first value', () => {
-        ;[
-          { desc: 'not an integer', value: '🙈', message: "Values of parameter 'electionTimeoutWindow' must be integers" },
-          { desc: 'less than zero', value: -1, message: "First value of parameter 'electionTimeoutWindow' must be greater than zero" },
-          { desc: '0', value: 0, message: "First value of parameter 'electionTimeoutWindow' must be greater than zero" },
-          { desc: 'larger than the second value', value: 11, message: "Second value of parameter 'electionTimeoutWindow' must be greater than the first" },
-          { desc: 'equal to the second value', value: 10, message: "Second value of parameter 'electionTimeoutWindow' must be greater than the first" }
-        ].forEach(({ desc, value, message }) => {
-          context(`it is ${desc}`, () => {
-            it('causes a TypeError to be thrown', ctx => {
-              assert.throws(
-                () => ctx.createServer({ electionTimeoutWindow: [value, 10] }),
-                TypeError,
-                message)
-            })
-          })
-        })
-      })
+const wrapperRejectsWithOriginalException = macro(async (t, param) => {
+  const { original, wrapper } = setupWrapper(t.context, param)
+  const err = new Error()
+  original.throws(err)
+  const actualErr = await t.throws(wrapper())
+  t.true(actualErr === err)
+}, (_, param) => `the Promise-wrapper for the ${param} param returns a promise that is rejected with the exception thrown by the original function`)
 
-      describe('the second value', () => {
-        context('is not an integer', () => {
-          it('causes a TypeError to be thrown', ctx => {
-            assert.throws(
-              () => ctx.createServer({ electionTimeoutWindow: [10, '🙈'] }),
-              TypeError,
-              "Values of parameter 'electionTimeoutWindow' must be integers")
-          })
-        })
+test.beforeEach(t => {
+  const Server = spy(() => stub())
 
-        // No need to check against 0 or the first value, the tests for the
-        // first value will catch any errors.
-      })
+  const createServer = opts => {
+    return main.createServer(Object.assign({
+      address: '///id',
+      electionTimeoutWindow: [1000, 2000],
+      heartbeatInterval: 500,
+      createTransport () {},
+      persistState () {},
+      persistEntries () {},
+      applyEntry () {},
+      crashHandler () {}
+    }, opts))
+  }
 
-      context('the values are valid', () => {
-        it('creates the server with the electionTimeoutWindow', ctx => {
-          const values = [10, 20]
-          ctx.createServer({ electionTimeoutWindow: values })
-          assert(ctx.Server.calledOnce)
-          const { args: [{ electionTimeoutWindow }] } = ctx.Server.firstCall
-          assert(electionTimeoutWindow === values)
-        })
-      })
-    })
+  // Note that the next tests' beforeEach hook overrides the shared Server stub.
+  // Tests where the Server is instantiated asynchronously need to be marked as
+  // serial.
+  Object.assign(shared, { Server })
 
-    param('heartbeatInterval', () => {
-      ;[
-        { desc: 'not an integer', value: '🙈' },
-        { desc: 'less than zero', value: -1 },
-        { desc: '0', value: 0 }
-      ].forEach(({ desc, value }) => {
-        context(`it is ${desc}`, () => {
-          it('causes a TypeError to be thrown', ctx => {
-            assert.throws(
-              () => ctx.createServer({ heartbeatInterval: value }),
-              TypeError,
-              "Parameter 'heartbeatInterval' must be an integer, greater than zero")
-          })
-        })
-      })
-
-      context('is an integer greater than zero', () => {
-        it('creates the server with the heartbeatInterval', ctx => {
-          ctx.createServer({ heartbeatInterval: 5 })
-          assert(ctx.Server.calledOnce)
-          const { args: [{ heartbeatInterval }] } = ctx.Server.firstCall
-          assert(heartbeatInterval === 5)
-        })
-      })
-    })
-
-    const functionParam = (name, wrapped = false) => {
-      param(name, () => {
-        context('it is not a function', () => {
-          it('causes a TypeError to be thrown', ctx => {
-            assert.throws(
-              () => ctx.createServer({ [name]: 42 }),
-              TypeError,
-              `Parameter '${name}' must be a function, not number`)
-          })
-        })
-
-        context('is a function', () => {
-          if (!wrapped) {
-            it(`creates the server with the ${name}`, ctx => {
-              const fn = () => {}
-              ctx.createServer({ [name]: fn })
-              assert(ctx.Server.calledOnce)
-              const { args: [{ [name]: received }] } = ctx.Server.firstCall
-              assert(received === fn)
-            })
-          } else {
-            it(`creates the server with a Promise-wrapper for the ${name}`, ctx => {
-              ctx.createServer({ [name] () {} })
-              assert(ctx.Server.calledOnce)
-              const { args: [{ [name]: wrapper }] } = ctx.Server.firstCall
-              assert(typeof wrapper === 'function')
-            })
-
-            describe('the Promise-wrapper', () => {
-              beforeEach(ctx => {
-                ctx.original = stub()
-                ctx.createServer({ [name]: ctx.original })
-                assert(ctx.Server.calledOnce)
-                const { args: [{ [name]: wrapper }] } = ctx.Server.firstCall
-                ctx.wrapper = wrapper
-              })
-
-              it('invokes the original function', ctx => {
-                const args = []
-                for (let i = 0; i < ctx.wrapper.length; i++) {
-                  args.push(Symbol())
-                }
-                ctx.wrapper(...args)
-
-                assert(ctx.original.calledOnce)
-                const { args: propagated } = ctx.original.firstCall
-                assert.deepStrictEqual(propagated, args)
-              })
-
-              context('the original function returns a promise', () => {
-                context('the promise is fulfilled', () => {
-                  it('fulfills the promise returned by the wrapper', async ctx => {
-                    const value = Symbol()
-                    ctx.original.returns(Promise.resolve(value))
-                    assert(await ctx.wrapper() === value)
-                  })
-                })
-
-                context('the promise is rejected', () => {
-                  it('rejects the promise returned by the wrapper', async ctx => {
-                    const err = Symbol()
-                    ctx.original.returns(Promise.reject(err))
-                    assert(await getReason(ctx.wrapper()) === err)
-                  })
-                })
-              })
-
-              context('the original function returns a non-promise value', () => {
-                it('fulfills the promise returned by the wrapper with the value', async ctx => {
-                  const value = Symbol()
-                  ctx.original.returns(value)
-                  assert(await ctx.wrapper() === value)
-                })
-              })
-
-              context('the original function throws an error', () => {
-                it('rejects the promise returned by the wrapper with the error', async ctx => {
-                  const err = Symbol()
-                  ctx.original.throws(err)
-                  assert(await getReason(ctx.wrapper()) === err)
-                })
-              })
-            })
-          }
-        })
-      })
-    }
-
-    functionParam('createTransport')
-    functionParam('persistState', true)
-    functionParam('persistEntries', true)
-    functionParam('applyEntry', true)
-    functionParam('crashHandler')
+  Object.assign(t.context, {
+    createServer,
+    Server
   })
 })
+
+test('export symbols', t => {
+  t.deepEqual(main.symbols, {
+    AppendEntries, AcceptEntries, RejectEntries,
+    RequestVote, DenyVote, GrantVote,
+    Noop
+  })
+})
+
+test('export Address', t => {
+  t.true(main.Address === Address)
+})
+
+test('export Entry', t => {
+  t.true(main.Entry === Entry)
+})
+
+{
+  const message = "Parameter 'address' must be a string or an Address instance"
+  test('an invalid address string', throwsTypeError, 'address', '🙈', message)
+  test('not a string or an Address instance', throwsTypeError, 'address', 42, message)
+}
+
+test('createServer() creates the server with an Address instance if the address param is a valid address string', t => {
+  const { createServer, Server } = t.context
+  createServer({ address: '///foo' })
+  t.true(Server.calledOnce)
+  const { args: [{ address }] } = Server.firstCall
+  t.true(address instanceof Address)
+  t.true(address.serverId === 'foo')
+})
+
+test('if it is an Address instance', usingParam, 'address', new Address('///foo'))
+
+test('createServer() creates a server whose id is the serverId of the address', t => {
+  const { createServer, Server } = t.context
+  const address = new Address('///foo')
+  createServer({ address })
+  t.true(Server.calledOnce)
+  const { args: [{ id }] } = Server.firstCall
+  t.true(id === address.serverId)
+})
+
+for (const [condition, value, message] of [
+  ['not iterable', true, "Parameter 'electionTimeoutWindow' must be iterable"],
+  ...[
+    ['not an integer', '🙈', "Values of parameter 'electionTimeoutWindow' must be integers"],
+    ['less than zero', -1, "First value of parameter 'electionTimeoutWindow' must be greater than zero"],
+    ['0', 0, "First value of parameter 'electionTimeoutWindow' must be greater than zero"],
+    ['larger than the second value', 11, "Second value of parameter 'electionTimeoutWindow' must be greater than the first"],
+    ['equal to the second value', 10, "Second value of parameter 'electionTimeoutWindow' must be greater than the first"]
+  ].map(([condition, value, message]) => [`an iterable whose first value is ${condition}`, [value, 10], message]),
+  ['an iterable whose second value is not an integer', '🙈', "Values of parameter 'electionTimeoutWindow' must be integers"]
+]) {
+  test(condition, throwsTypeError, 'electionTimeoutWindow', value, message)
+}
+
+test(usingParam, 'electionTimeoutWindow', [10, 20])
+
+for (const [condition, value, message] of [
+  ['not an integer', '🙈'],
+  ['less than zero', -1],
+  ['0', 0]
+]) {
+  test(condition, throwsTypeError, 'heartbeatInterval', value, message)
+}
+
+test(usingParam, 'heartbeatInterval', 5)
+
+for (const param of [
+  'createTransport',
+  'persistState',
+  'persistEntries',
+  'applyEntry',
+  'crashHandler'
+]) {
+  test('not a function', throwsTypeError, param, 42, `Parameter '${param}' must be a function, not number`)
+}
+
+test(usingParam, 'createTransport', () => {})
+test(usingParam, 'crashHandler', () => {})
+
+for (const param of ['applyEntry', 'persistEntries', 'persistState']) {
+  test(usingWrapper, param)
+  test(wrapperPropagatesToOriginal, param)
+  test(wrapperFulfilsLikeOriginal, param)
+  test(wrapperRejectsLikeOriginal, param)
+  test(wrapperFulfilsWithOriginalResult, param)
+  test(wrapperRejectsWithOriginalException, param)
+}

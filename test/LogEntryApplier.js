@@ -1,261 +1,220 @@
-import { beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import { spy, stub } from 'sinon'
 
 import { Noop } from '../lib/symbols'
 import Entry from '../lib/Entry'
 import LogEntryApplier from '../lib/LogEntryApplier'
 
-describe('LogEntryApplier', () => {
-  beforeEach(ctx => {
-    const applyEntry = ctx.applyEntry = stub().returns(Promise.resolve())
-    const crashHandler = ctx.crashHandler = stub()
-    ctx.applier = new LogEntryApplier({ applyEntry, crashHandler })
+import macro from './helpers/macro'
+
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
+
+function setupDoApply (context) {
+  const { applyEntry } = context
+  let doApply
+  applyEntry.returns(new Promise(resolve => {
+    doApply = result => {
+      resolve(result)
+      return Promise.resolve()
+    }
+  }))
+  return Object.assign({ doApply }, context)
+}
+
+test.beforeEach(t => {
+  const applyEntry = stub().returns(Promise.resolve())
+  const crashHandler = stub()
+  const applier = new LogEntryApplier({ applyEntry, crashHandler })
+
+  Object.assign(t.context, {
+    applier,
+    applyEntry,
+    crashHandler
   })
+})
 
-  describe('constructor ({ applyEntry, crashHandler })', () => {
-    it('initializes lastApplied to 0', ctx => {
-      assert(ctx.applier.lastApplied === 0)
-    })
+const resetThrowsTypeError = macro((t, lastApplied) => {
+  const { applier } = t.context
+  t.throws(
+    () => applier.reset(lastApplied),
+    TypeError,
+    'Cannot reset log entry applier: last-applied index must be a safe, non-negative integer')
+}, suffix => `reset() throws if the given lastApplied value is ${suffix}`)
 
-    it('initializes lastQueued to 0', ctx => {
-      assert(ctx.applier.lastQueued === 0)
-    })
-  })
+test('lastApplied is initialized to 0', t => {
+  const { applier } = t.context
+  t.true(applier.lastApplied === 0)
+})
 
-  describe('#reset (lastApplied)', () => {
-    ;[
-      { desc: 'not an integer', value: '🙊' },
-      { desc: 'not a safe integer', value: Number.MAX_SAFE_INTEGER + 1 },
-      { desc: 'lower than 0', value: -1 }
-    ].forEach(({ desc, value }) => {
-      context(`lastApplied is ${desc}`, () => {
-        it('throws a TypeError', ctx => {
-          assert.throws(
-            () => ctx.applier.reset(value),
-            TypeError,
-            'Cannot reset log entry applier: last-applied index must be a safe, non-negative integer')
-        })
-      })
-    })
+test('lastQueued is initialized to 0', t => {
+  const { applier } = t.context
+  t.true(applier.lastQueued === 0)
+})
 
-    context('called while entries are being appended', () => {
-      it('throws an Error', ctx => {
-        ctx.applier.enqueue(new Entry(1, 1, Symbol()))
-        assert.throws(
-          () => ctx.applier.reset(0),
-          Error,
-          'Cannot reset log entry applier while entries are being applied')
-      })
-    })
+test('not an integer', resetThrowsTypeError, '🙊')
+test('not a safe integer', resetThrowsTypeError, Number.MAX_SAFE_INTEGER + 1)
+test('lower than 0', resetThrowsTypeError, -1)
 
-    it('sets lastApplied to the lastApplied value', ctx => {
-      ctx.applier.reset(10)
-      assert(ctx.applier.lastApplied === 10)
-    })
+test('reset() throws if called while entries are being appended', t => {
+  const { applier } = t.context
+  applier.enqueue(new Entry(1, 1, Symbol()))
+  t.throws(
+    () => applier.reset(0),
+    Error,
+    'Cannot reset log entry applier while entries are being applied')
+})
 
-    it('sets lastQueued to the lastApplied value', ctx => {
-      ctx.applier.reset(10)
-      assert(ctx.applier.lastQueued === 10)
-    })
-  })
+test('reset() sets lastApplied to the lastApplied value', t => {
+  const { applier } = t.context
+  applier.reset(10)
+  t.true(applier.lastApplied === 10)
+})
 
-  describe('#enqueue (entry, resolve = null)', () => {
-    it('sets lastQueued to the entry’s index', ctx => {
-      ctx.applier.enqueue(new Entry(1, 1, Symbol()))
-      assert(ctx.applier.lastQueued === 1)
-    })
+test('reset() sets lastQueued to the lastApplied value', t => {
+  const { applier } = t.context
+  applier.reset(10)
+  t.true(applier.lastQueued === 10)
+})
 
-    context('when an entry is already being applied', () => {
-      it('prevents two entries being applied at the same time', ctx => {
-        ctx.applier.enqueue(new Entry(1, 1, Symbol()))
-        ctx.applier.enqueue(new Entry(2, 1, Symbol()))
-        assert(ctx.applyEntry.calledOnce)
-      })
+test('enqueue() immediately sets lastQueued to the entry’s index', t => {
+  const { applier } = t.context
+  applier.enqueue(new Entry(1, 1, Symbol()))
+  t.true(applier.lastQueued === 1)
+})
 
-      describe('the second entry', () => {
-        it('is applied after the first', async ctx => {
-          const entries = [new Entry(1, 1, Symbol()), new Entry(2, 1, Symbol())]
-          const firstApplied = spy()
-          ctx.applier.enqueue(entries[0], firstApplied)
-          await new Promise(resolve => {
-            ctx.applier.enqueue(entries[1], () => {
-              assert(firstApplied.calledOnce)
-              resolve()
-            })
-          })
+test('enqueue() applies the entry', t => {
+  const { applier, applyEntry } = t.context
+  const entry = new Entry(1, 1, Symbol())
+  applier.enqueue(entry)
+  t.true(applyEntry.calledOnce)
+  const { args: [applied] } = applyEntry.firstCall
+  t.true(applied === entry)
+})
 
-          assert(ctx.applyEntry.calledTwice)
-          const { args: [[first], [second]] } = ctx.applyEntry
-          assert.deepStrictEqual([first, second], entries)
-        })
-      })
+test('enqueue() sets lastApplied to the entry’s index, once it’s been applied', async t => {
+  const { applier, doApply } = setupDoApply(t.context)
 
-      describe('a third entry', () => {
-        it('is applied after the second', async ctx => {
-          const entries = [new Entry(1, 1, Symbol()), new Entry(2, 1, Symbol()), new Entry(3, 1, Symbol())]
-          const firstApplied = spy()
-          ctx.applier.enqueue(entries[0], firstApplied)
-          const secondApplied = spy()
-          ctx.applier.enqueue(entries[1], secondApplied)
-          await new Promise(resolve => {
-            ctx.applier.enqueue(entries[2], () => {
-              assert(firstApplied.calledBefore(secondApplied))
-              resolve()
-            })
-          })
+  applier.enqueue(new Entry(3, 1, Symbol()))
+  t.true(applier.lastApplied === 0)
 
-          assert(ctx.applyEntry.calledThrice)
-          const { args: [[first], [second], [third]] } = ctx.applyEntry
-          assert.deepStrictEqual([first, second, third], entries)
-        })
-      })
-    })
+  await doApply()
+  t.true(applier.lastApplied === 3)
+})
 
-    context('no other entries are being applied', () => {
-      it('applies the entry', ctx => {
-        const entry = new Entry(1, 1, Symbol())
-        ctx.applier.enqueue(entry)
-        assert(ctx.applyEntry.calledOnce)
-        const { args: [applied] } = ctx.applyEntry.firstCall
-        assert(applied === entry)
-      })
+test('enqueue() prevents two entries being applied at the same time', t => {
+  const { applier, applyEntry } = t.context
+  applier.enqueue(new Entry(1, 1, Symbol()))
+  applier.enqueue(new Entry(2, 1, Symbol()))
+  t.true(applyEntry.calledOnce)
+})
 
-      context('applying the entry succeeded', () => {
-        it('sets lastApplied to the entry’s index', async ctx => {
-          let doApply
-          ctx.applyEntry.returns(new Promise(resolve => {
-            doApply = resolve
-          }))
+test('enqueue() applies one entry after the other', async t => {
+  const { applier, applyEntry } = t.context
+  const first = new Entry(1, 1, Symbol())
+  const second = new Entry(2, 1, Symbol())
 
-          ctx.applier.enqueue(new Entry(3, 1, Symbol()))
-          assert(ctx.applier.lastApplied === 0)
+  const firstApplied = spy()
+  applier.enqueue(first, firstApplied)
 
-          doApply()
-          await Promise.resolve()
-          assert(ctx.applier.lastApplied === 3)
-        })
-
-        context('there is a resolve callback for the entry', () => {
-          it('is called with the result', async ctx => {
-            let doApply
-            ctx.applyEntry.returns(new Promise(resolve => {
-              doApply = resolve
-            }))
-
-            const wasApplied = spy()
-            ctx.applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
-
-            const result = Symbol()
-            doApply(result)
-            await Promise.resolve()
-            assert(wasApplied.calledOnce)
-            const { args: [applicationResult] } = wasApplied.firstCall
-            assert(applicationResult === result)
-          })
-        })
-      })
-
-      context('applying the entry failed', () => {
-        describe('the crashHandler', () => {
-          it('is called with the error', async ctx => {
-            let doFail
-            ctx.applyEntry.returns(new Promise((resolve, reject) => {
-              doFail = reject
-            }))
-
-            ctx.applier.enqueue(new Entry(1, 1, Symbol()))
-
-            const err = Symbol()
-            doFail(err)
-            await new Promise(resolve => setImmediate(resolve))
-            assert(ctx.crashHandler.calledOnce)
-            const { args: [reason] } = ctx.crashHandler.firstCall
-            assert(reason === err)
-          })
-        })
-      })
-
-      context('the entry has a Noop value', () => {
-        it('does not actually apply the entry', async ctx => {
-          await new Promise(resolve => {
-            ctx.applier.enqueue(new Entry(1, 1, Noop), resolve)
-          })
-
-          assert(ctx.applyEntry.notCalled)
-        })
-
-        it('does set lastApplied to the entry’s index', async ctx => {
-          await new Promise(resolve => {
-            ctx.applier.enqueue(new Entry(3, 1, Noop), resolve)
-          })
-
-          assert(ctx.applier.lastApplied === 3)
-        })
-
-        context('there is a resolve callback for the entry', () => {
-          it('is called (without a result)', async ctx => {
-            const result = new Promise(resolve => {
-              ctx.applier.enqueue(new Entry(3, 1, Noop), resolve)
-            })
-
-            assert(await result === undefined)
-          })
-        })
-      })
+  await new Promise(resolve => {
+    applier.enqueue(second, () => {
+      t.true(firstApplied.calledOnce)
+      resolve()
     })
   })
 
-  describe('#finish ()', () => {
-    context('no entries are being applied', () => {
-      it('returns a fulfilled promise', async ctx => {
-        assert(await ctx.applier.finish() === undefined)
-      })
-    })
+  t.true(applyEntry.calledTwice)
+  const { args: [[actualFirst], [actualSecond]] } = applyEntry
+  t.true(actualFirst === first)
+  t.true(actualSecond === second)
+})
 
-    context('entries are being applied', () => {
-      it('returns a promise that is fulfilled when the last entry has been applied', async ctx => {
-        let doApply
-        ctx.applyEntry.returns(new Promise(resolve => {
-          doApply = resolve
-        }))
+test('enqueue() calls the resolve callback with the result of applying the entry', async t => {
+  const { applier, doApply } = setupDoApply(t.context)
+  const wasApplied = spy()
+  applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
 
-        const wasApplied = spy()
-        ctx.applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
+  const result = Symbol()
+  await doApply(result)
 
-        const finished = spy()
-        const p = ctx.applier.finish().then(finished)
+  t.true(wasApplied.calledOnce)
+  const { args: [applicationResult] } = wasApplied.firstCall
+  t.true(applicationResult === result)
+})
 
-        assert(wasApplied.notCalled)
-        doApply()
-        await p
-        assert(wasApplied.calledBefore(finished))
-        const { args: [value] } = finished.firstCall
-        assert(value === undefined)
-      })
-
-      it('does not change the lastQueued value', ctx => {
-        ctx.applier.enqueue(new Entry(1, 1, Symbol()))
-        const { lastQueued } = ctx.applier
-
-        ctx.applier.finish()
-        assert(ctx.applier.lastQueued === lastQueued)
-      })
-    })
+test('enqueue() does not apply Noop entries', async t => {
+  const { applier, applyEntry } = t.context
+  await new Promise(resolve => {
+    applier.enqueue(new Entry(1, 1, Noop), resolve)
   })
 
-  describe('#destroy ()', () => {
-    it('stops any remaining entries from being applied', async ctx => {
-      const firstApplied = new Promise(resolve => {
-        ctx.applier.enqueue(new Entry(1, 1, Symbol()), resolve)
-      })
-      ctx.applier.enqueue(new Entry(2, 1, Symbol()))
+  t.true(applyEntry.notCalled)
+})
 
-      assert(ctx.applyEntry.calledOnce)
-      ctx.applier.destroy()
-
-      await firstApplied
-      assert(ctx.applyEntry.calledOnce)
-    })
+test('enqueue() sets lastApplied to the entry’s index, even if it is a Noop entry', async t => {
+  const { applier } = t.context
+  await new Promise(resolve => {
+    applier.enqueue(new Entry(3, 1, Noop), resolve)
   })
+
+  t.true(applier.lastApplied === 3)
+})
+
+test('enqueue() calls the resolve callback with an undefined result when enqueuing a Noop entry', async t => {
+  const { applier } = t.context
+  const result = new Promise(resolve => {
+    applier.enqueue(new Entry(3, 1, Noop), resolve)
+  })
+
+  t.true(await result === undefined)
+})
+
+test('the crashHandler is called if an entry cannot be applied', async t => {
+  const { applier, crashHandler, doApply } = setupDoApply(t.context)
+  applier.enqueue(new Entry(1, 1, Symbol()))
+
+  const err = Symbol()
+  doApply(Promise.reject(err))
+  await new Promise(resolve => setImmediate(resolve))
+
+  t.true(crashHandler.calledOnce)
+  const { args: [reason] } = crashHandler.firstCall
+  t.true(reason === err)
+})
+
+test('finish() returns a fulfilled promise if no entries are being applied', async t => {
+  const { applier } = t.context
+  t.true(await applier.finish() === undefined)
+})
+
+test('finish() returns a promise that is fulfilled when the last entry has been applied', async t => {
+  const { applier, doApply } = setupDoApply(t.context)
+  const wasApplied = spy()
+  applier.enqueue(new Entry(1, 1, Symbol()), wasApplied)
+
+  const finished = spy()
+  const promise = applier.finish().then(finished)
+
+  t.true(wasApplied.notCalled)
+  doApply()
+  await promise
+
+  t.true(wasApplied.calledBefore(finished))
+  const { args: [value] } = finished.firstCall
+  t.true(value === undefined)
+})
+
+test('destroy() stops any remaining entries from being applied', async t => {
+  const { applier, applyEntry } = t.context
+  const firstApplied = new Promise(resolve => {
+    applier.enqueue(new Entry(1, 1, Symbol()), resolve)
+  })
+  applier.enqueue(new Entry(2, 1, Symbol()))
+
+  t.true(applyEntry.calledOnce)
+  applier.destroy()
+
+  await firstApplied
+  t.true(applyEntry.calledOnce)
 })

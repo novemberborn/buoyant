@@ -1,58 +1,37 @@
-import { before, context, describe, it } from '!mocha'
-import assert from 'power-assert'
-
+import test from 'ava'
 import Entry from '../lib/Entry'
+import macro from './helpers/macro'
 
-describe('Entry', () => {
-  describe('constructor (index, term, value)', () => {
-    ;[
-      { desc: 'index is not an integer', values: ['🙊', 1], message: "Parameter 'index' must be a safe integer, greater or equal than 1" },
-      { desc: 'index is not a safe integer', values: [Number.MAX_SAFE_INTEGER + 1, 1], message: "Parameter 'index' must be a safe integer, greater or equal than 1" },
-      { desc: 'index is lower than 1', values: [0, 1], message: "Parameter 'index' must be a safe integer, greater or equal than 1" },
-      { desc: 'term is an integer', values: [1, '🙊'], message: "Parameter 'term' must be a safe integer, greater or equal than 1" },
-      { desc: 'term is not a safe integer', values: [1, Number.MAX_SAFE_INTEGER + 1], message: "Parameter 'term' must be a safe integer, greater or equal than 1" },
-      { desc: 'term is lower than 1', values: [1, 0], message: "Parameter 'term' must be a safe integer, greater or equal than 1" }
-    ].forEach(({ desc, values, message }) => {
-      context(desc, () => {
-        it('throws a TypeError', () => {
-          assert.throws(
-            () => new Entry(...values),
-            TypeError, message)
-        })
-      })
-    })
+const throwsTypeError = macro((t, values, message) => {
+  t.throws(() => new Entry(...values), TypeError, message)
+}, suffix => `throw when constructed with ${suffix}`)
 
-    ;[
-      { param: 'index', index: 0, value: 1 },
-      { param: 'term', index: 1, value: 2 },
-      { param: 'value', index: 2, value: Symbol() }
-    ].forEach(({ param, index, value }) => {
-      it(`sets ${param} on the instance to the corresponding value`, () => {
-        const args = [1, 1, '🙊']
-        args[index] = value
-        assert(new Entry(...args)[param] === value)
-      })
-    })
-  })
+const hasField = macro((t, param, expected) => {
+  const args = [1, 1, '🙊']
+  args[{ index: 0, term: 1, value: 2 }[param]] = expected
+  const entry = new Entry(...args)
+  t.true(entry[param] === expected)
+}, (_, param, value) => `entry constructed with ${param}=${value.toString()} has the correct ${param} field`)
 
-  ;['index', 'term', 'value'].forEach(field => {
-    describe(`#${field}`, () => {
-      before(ctx => {
-        const entry = new Entry(1, 1, '🙊')
-        ctx.descriptor = Object.getOwnPropertyDescriptor(entry, field)
-      })
+const checkFieldConfiguration = macro((t, field) => {
+  const entry = new Entry(1, 1, '🙊')
+  const { configurable, enumerable, writable } = Object.getOwnPropertyDescriptor(entry, field)
+  t.false(configurable)
+  t.true(enumerable)
+  t.false(writable)
+}, (_, field) => `configuration of ${field} field is correct`)
 
-      it('is not writable', ctx => {
-        assert(!ctx.descriptor.writable)
-      })
+test('an index that is not an integer', throwsTypeError, ['🙊', 1], "Parameter 'index' must be a safe integer, greater or equal than 1")
+test('an index that is not a safe integer', throwsTypeError, [Number.MAX_SAFE_INTEGER + 1, 1], "Parameter 'index' must be a safe integer, greater or equal than 1")
+test('an index that is lower than 1', throwsTypeError, [0, 1], "Parameter 'index' must be a safe integer, greater or equal than 1")
+test('a term that is an integer', throwsTypeError, [1, '🙊'], "Parameter 'term' must be a safe integer, greater or equal than 1")
+test('a term that is not a safe integer', throwsTypeError, [1, Number.MAX_SAFE_INTEGER + 1], "Parameter 'term' must be a safe integer, greater or equal than 1")
+test('a term that is lower than 1', throwsTypeError, [1, 0], "Parameter 'term' must be a safe integer, greater or equal than 1")
 
-      it('is not configurable', ctx => {
-        assert(!ctx.descriptor.configurable)
-      })
+test(hasField, 'index', 1)
+test(hasField, 'term', 2)
+test(hasField, 'value', Symbol())
 
-      it('is enumerable', ctx => {
-        assert(ctx.descriptor.enumerable)
-      })
-    })
-  })
-})
+test(checkFieldConfiguration, 'index')
+test(checkFieldConfiguration, 'term')
+test(checkFieldConfiguration, 'value')

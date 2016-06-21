@@ -1,8 +1,9 @@
+// https://github.com/avajs/eslint-plugin-ava/issues/127
+/* eslint-disable ava/use-t */
+
 import { resolve } from 'path'
 
-import { after, afterEach, before, beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
-import { install as installClock } from 'lolex'
+import test from 'ava'
 import { spy, stub } from 'sinon'
 
 import {
@@ -12,510 +13,490 @@ import {
 
 import Entry from '../lib/Entry'
 
+import fork from './helpers/fork-context'
+import macro from './helpers/macro'
 import {
   setupConstructors,
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
+} from './helpers/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './helpers/stub-helpers'
 
-describe('roles/Follower', () => {
-  before(ctx => {
-    ctx.clock = installClock(0, ['setInterval', 'clearInterval'])
-  })
-  after(ctx => ctx.clock.uninstall())
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
 
-  setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
+const Follower = setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
 
-  beforeEach(ctx => {
-    const convertToCandidate = ctx.convertToCandidate = stub()
-    const crashHandler = ctx.crashHandler = stub()
-    const electionTimeout = ctx.electionTimeout = 10
-    const log = ctx.log = stubLog()
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const state = ctx.state = stubState()
+const usesScheduler = macro((t, method, getArgs = () => []) => {
+  const { follower } = t.context
+  // Only checks whether the scheduler is used. Not a perfect test since
+  // it doesn't confirm that the operation is actually gated by the
+  // scheduler.
+  spy(follower.scheduler, 'asap')
+  follower[method](...getArgs(t.context))
+  t.true(follower.scheduler.asap.calledOnce)
+}, (condition, method) => `${method}() uses the scheduler ${condition}`.trim())
 
-    const { clock, timers } = stubTimers()
-    ctx.clock = clock
+const ignoresRequest = macro(async (t, term, lastLogIndex, lastLogTerm) => {
+  const { candidate, follower } = t.context
+  // The other arguments should cause the vote to be granted, were it not
+  // for the log index.
+  await follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
+  // Verify no messages were sent.
+  t.true(candidate.send.notCalled)
+}, condition => `handleRequestVote() ignores the request if the candidate's ${condition}`)
 
-    ctx.follower = new ctx.Follower({ convertToCandidate, crashHandler, electionTimeout, log, nonPeerReceiver, peers, state, timers })
-  })
+const setsTerm = macro(async (t, term, lastLogIndex, lastLogTerm) => {
+  const { candidate, follower, state } = t.context
+  await follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
+  t.true(state.setTerm.calledOnce)
+  const { args: [value] } = state.setTerm.firstCall
+  t.true(value === term)
+}, condition => `handleRequestVote() updates its term to that of the candidate if it is ahead, even if the candidate’s ${condition}`)
 
-  afterEach(ctx => !ctx.follower.destroyed && ctx.follower.destroy())
+const returnsPromiseForTermUpdate = macro(async (t, term, lastLogIndex, lastLogTerm) => {
+  const { candidate, follower, state } = t.context
+  let updated
+  state.setTerm.returns(new Promise(resolve => {
+    updated = resolve
+  }))
 
-  describe('constructor ({ electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToCandidate })', () => {
-    testInputConsumerInstantiation('follower', ctx => ctx.follower, ctx => ctx.crashHandler)
-    testSchedulerInstantiation(ctx => ctx.follower, ctx => ctx.crashHandler)
-  })
+  const promise = follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
 
-  describe('#start (replayMessage)', () => {
-    it('starts the election timer', ctx => {
-      spy(ctx.follower, 'maybeStartElection')
-      ctx.follower.start()
+  const probe = Symbol()
+  updated(probe)
 
-      ctx.clock.tick(ctx.electionTimeout)
-      assert(ctx.follower.maybeStartElection.calledOnce)
+  t.true(await promise === probe)
+}, condition => `handleRequestVote() returns a promise for when its term is updated, even if candidate’s ${condition}`)
 
-      ctx.clock.tick(ctx.electionTimeout)
-      assert(ctx.follower.maybeStartElection.calledTwice)
-    })
+const setsTermAndVotes = macro(async (t, term, lastLogIndex, lastLogTerm) => {
+  const { candidate, follower, state } = t.context
+  await follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
 
-    context('there’s a message to be replayed', () => {
-      beforeEach(ctx => {
-        ctx.message = Symbol()
-      })
+  t.true(state.setTermAndVote.calledOnce)
+  const { args: [value, id] } = state.setTermAndVote.firstCall
+  t.true(value === term)
+  t.true(id === candidate.id)
+}, condition => `handleRequestVote() sets its term to that of the candidate, and votes, if the candidate's ${condition}`)
 
-      it('handles the message', ctx => {
-        spy(ctx.follower, 'handleMessage')
-        ctx.follower.start([ctx.peer, ctx.message])
+const dontBecomeCandidateAfterFirstTimeout = macro(t => {
+  const { clock, electionTimeout, follower } = t.context
+  clock.tick(electionTimeout)
+  t.true(follower.convertToCandidate.notCalled)
+}, prefix => `${prefix}, if no other messages are received before the election timeout, the follower does not yet become a candidate`)
 
-        assert(ctx.follower.handleMessage.calledOnce)
-        const { args } = ctx.follower.handleMessage.firstCall
-        assert(args[0] === ctx.peer)
-        assert(args[1] === ctx.message)
-      })
+const becomeCandidateAfterSecondTimeout = macro(t => {
+  const { clock, electionTimeout, follower } = t.context
+  clock.tick(electionTimeout)
+  t.true(follower.convertToCandidate.notCalled)
 
-      it('uses the scheduler', ctx => {
-        // Only checks whether the scheduler is used. Not a perfect test since
-        // it doesn't confirm that the operation is actually gated by the
-        // scheduler.
-        spy(ctx.follower.scheduler, 'asap')
-        ctx.follower.start([ctx.peer, ctx.message])
-        assert(ctx.follower.scheduler.asap.calledOnce)
-      })
+  clock.tick(electionTimeout)
+  t.true(follower.convertToCandidate.calledOnce)
+}, prefix => `${prefix}, if no other messages are received before the election timeout, the follower does not yet become a candidate`)
 
-      it('replays the message before starting the input consumer', ctx => {
-        const handleMessage = spy(ctx.follower, 'handleMessage')
-        const start = spy(ctx.follower.inputConsumer, 'start')
-        ctx.follower.start([ctx.peer, ctx.message])
+test.beforeEach(t => {
+  const convertToCandidate = stub()
+  const crashHandler = stub()
+  const electionTimeout = 10
+  const log = stubLog()
+  const nonPeerReceiver = stub({ messages: stubMessages() })
+  const peers = [stubPeer(), stubPeer(), stubPeer()]
+  const state = stubState()
+  const { clock, timers } = stubTimers()
 
-        assert(handleMessage.calledBefore(start))
-      })
-    })
+  state._currentTerm.returns(2)
 
-    testInputConsumerStart(ctx => ctx.follower)
-  })
-
-  describe('#destroy ()', () => {
-    it('clears the election timer', ctx => {
-      spy(ctx.follower, 'maybeStartElection') // spy on the method called by the timer
-
-      ctx.follower.start()
-      ctx.follower.destroy() // should prevent the timer from triggering
-      ctx.clock.tick(ctx.electionTimeout) // timer should fire now, if not cleared
-      assert(ctx.follower.maybeStartElection) // should not be called agai.notCalledn
-    })
-
-    testInputConsumerDestruction(ctx => ctx.follower)
-    testSchedulerDestruction(ctx => ctx.follower)
-  })
-
-  // The implementation has an option to ignore election timeouts. This is
-  // tested in the handleRequestVote() and handleAppendEntries() tests, since
-  // these set the controlling flag.
-  describe('#maybeStartElection ()', () => {
-    it('uses the scheduler', ctx => {
-      // Only checks whether the scheduler is used. Not a perfect test since
-      // it doesn't confirm that the operation is actually gated by the
-      // scheduler.
-      spy(ctx.follower.scheduler, 'asap')
-      ctx.follower.maybeStartElection()
-      assert(ctx.follower.scheduler.asap.calledOnce)
-    })
-
-    context('previously invoked but not yet run', () => {
-      it('does not schedule again', ctx => {
-        const asap = stub(ctx.follower.scheduler, 'asap')
-        ctx.follower.maybeStartElection()
-        assert(asap.calledOnce)
-
-        ctx.follower.maybeStartElection()
-        assert(asap.calledOnce)
-      })
-    })
-
-    context('previously invoked and run', () => {
-      it('schedules again', ctx => {
-        const asap = stub(ctx.follower.scheduler, 'asap')
-        ctx.follower.maybeStartElection()
-        asap.firstCall.yield()
-
-        ctx.follower.maybeStartElection()
-        assert(asap.calledTwice)
-      })
-    })
+  const follower = new Follower({
+    convertToCandidate,
+    crashHandler,
+    electionTimeout,
+    log,
+    nonPeerReceiver,
+    peers,
+    state,
+    timers
   })
 
-  describe('#handleMessage (peer, message)', () => {
-    testMessageHandlerMapping(ctx => [ctx.follower, ctx.peer], [
-      { type: RequestVote, label: 'RequestVote', method: 'handleRequestVote' },
-      { type: AppendEntries, label: 'AppendEntries', method: 'handleAppendEntries' }
-    ])
+  Object.assign(t.context, {
+    convertToCandidate,
+    clock,
+    crashHandler,
+    electionTimeout,
+    follower,
+    log,
+    nonPeerReceiver,
+    peers,
+    state
   })
+})
 
-  describe('#handleRequestVote (peer, term, { lastLogIndex, lastLogTerm })', () => {
-    beforeEach(ctx => {
-      ctx.state._currentTerm.returns(2)
-      ctx.log._lastIndex.returns(2)
-      ctx.log._lastTerm.returns(2)
-    })
+test.afterEach(t => {
+  const { follower } = t.context
+  if (!follower.destroyed) follower.destroy()
+})
 
-    context('the term is older', () => {
-      it('sends a DenyVote message to the candidate', ctx => {
-        ctx.follower.handleRequestVote(ctx.peer, 1, { term: 1 })
+const beforeVoteRequest = fork().beforeEach(t => {
+  const { log, peers: [candidate] } = t.context
+  log._lastIndex.returns(2)
+  log._lastTerm.returns(2)
+  Object.assign(t.context, { candidate })
+})
 
-        assert(ctx.peer.send.calledOnce)
-        const { args: [denied] } = ctx.peer.send.firstCall
-        assert.deepStrictEqual(denied, { type: DenyVote, term: 2 })
-      })
+const hasVotedForCandidate = beforeVoteRequest.fork().beforeEach(t => {
+  const { candidate, state } = t.context
+  state._votedFor.returns(candidate.id)
+})
 
-      it('does not vote for the candidate', async ctx => {
-        ctx.state._votedFor.returns(null)
+const hasVotedForOtherCandidate = beforeVoteRequest.fork().beforeEach(t => {
+  const { peers: [, otherCandidate], state } = t.context
+  state._votedFor.returns(otherCandidate)
+})
 
-        // The other arguments should cause the vote to be granted, were it not
-        // for the outdated term.
-        await ctx.follower.handleRequestVote(ctx.peer, 1, { term: 1, lastLogIndex: 3, lastLogTerm: 3 })
-        // Verify the vote was indeed denied and no other messages were sent.
-        assert(ctx.peer.send.calledOnce)
-        const { args: [{ type }] } = ctx.peer.send.firstCall
-        assert(type === DenyVote)
-      })
-    })
+const sentGrantVote = beforeVoteRequest.fork().beforeEach(async t => {
+  const { candidate, follower } = t.context
+  follower.start()
+  await follower.handleRequestVote(candidate, 3, { lastLogIndex: 2, lastLogTerm: 2 })
+})
 
-    const doesNotGrantVote = ({ term, lastLogIndex, lastLogTerm }) => {
-      it('does not grant its vote to the candidate', async ctx => {
-        await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
-        assert(ctx.peer.send.notCalled)
-      })
+const appendingEntries = fork().beforeEach(async t => {
+  const { follower, peers: [leader] } = t.context
+  follower.start()
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+})
+
+testInputConsumerInstantiation('follower')
+testSchedulerInstantiation('follower')
+
+test('start() starts the election timer', t => {
+  const { clock, electionTimeout, follower } = t.context
+  spy(follower, 'maybeStartElection')
+  follower.start()
+
+  clock.tick(electionTimeout)
+  t.true(follower.maybeStartElection.calledOnce)
+
+  clock.tick(electionTimeout)
+  t.true(follower.maybeStartElection.calledTwice)
+})
+
+test('start() handles the replay message, if any', t => {
+  const { follower, peers: [peer] } = t.context
+  spy(follower, 'handleMessage')
+  const message = Symbol()
+  follower.start([peer, message])
+
+  t.true(follower.handleMessage.calledOnce)
+  const { args } = follower.handleMessage.firstCall
+  t.true(args[0] === peer)
+  t.true(args[1] === message)
+})
+
+test('when replaying a message', usesScheduler, 'start', ({ peers: [peer] }) => [peer, Symbol()])
+
+test('start() replays the message before starting the input consumer', t => {
+  const { follower, peers: [peer] } = t.context
+  const handleMessage = spy(follower, 'handleMessage')
+  const start = spy(follower.inputConsumer, 'start')
+  follower.start([peer, Symbol()])
+
+  t.true(handleMessage.calledBefore(start))
+})
+
+testInputConsumerStart('follower')
+
+test('destroy() clears the election timer', t => {
+  const { clock, electionTimeout, follower } = t.context
+  spy(follower, 'maybeStartElection') // spy on the method called by the timer
+
+  follower.start()
+  follower.destroy() // should prevent the timer from triggering
+  clock.tick(electionTimeout) // timer should fire now, if not cleared
+  t.true(follower.maybeStartElection.notCalled) // should not be called again
+})
+
+testInputConsumerDestruction('follower')
+testSchedulerDestruction('follower')
+
+test(usesScheduler, 'maybeStartElection')
+
+test('maybeStartElection() does not schedule again if already scheduled', t => {
+  const { follower } = t.context
+  const asap = stub(follower.scheduler, 'asap')
+  follower.maybeStartElection()
+  t.true(asap.calledOnce)
+
+  follower.maybeStartElection()
+  t.true(asap.calledOnce)
+})
+
+test('maybeStartElection() does schedule again once run', t => {
+  const { follower } = t.context
+  const asap = stub(follower.scheduler, 'asap')
+  follower.maybeStartElection()
+  asap.firstCall.yield()
+
+  follower.maybeStartElection()
+  t.true(asap.calledTwice)
+})
+
+testMessageHandlerMapping('follower', [
+  { type: RequestVote, label: 'RequestVote', method: 'handleRequestVote' },
+  { type: AppendEntries, label: 'AppendEntries', method: 'handleAppendEntries' }
+])
+
+beforeVoteRequest.test('handleRequestVote() sends a DenyVote message to the candidate if its term is older than the current one', async t => {
+  const { candidate, follower } = t.context
+  await follower.handleRequestVote(candidate, 1, { lastLogIndex: 3, lastLogTerm: 3 })
+
+  t.true(candidate.send.calledOnce)
+  const { args: [denied] } = candidate.send.firstCall
+  t.deepEqual(denied, { type: DenyVote, term: 2 })
+})
+
+for (const [votingCondition, context, shouldGrantVote] of [
+  ['not yet voted', beforeVoteRequest, true],
+  ['already voted for the candidate', hasVotedForCandidate, true],
+  ['already voted for another candidate', hasVotedForOtherCandidate, false]
+]) {
+  for (const [condition, term, lastLogIndex, lastLogTerm] of [
+    [`log index is behind and the follower has ${votingCondition}`, 3, 1, 1],
+    [`log term is behind and the follower has ${votingCondition}`, 3, 2, 1]
+  ]) {
+    context.test(condition, ignoresRequest, term, lastLogIndex, lastLogTerm)
+    context.test(condition, setsTerm, term, lastLogIndex, lastLogTerm)
+    context.test(condition, returnsPromiseForTermUpdate, term, lastLogIndex, lastLogTerm)
+  }
+
+  for (const [condition, lastLogIndex, lastLogTerm] of [
+    [`log index is equal, as is its log term, and the follower has ${votingCondition}`, 2, 2],
+    [`log index is equal, its log term is ahead, and the follower has ${votingCondition}`, 2, 2],
+    [`log index is ahead, its log term is equal, and the follower has ${votingCondition}`, 3, 2],
+    [`log index is ahead, its log term is ahead, and the follower has ${votingCondition}`, 3, 3]
+  ]) {
+    if (shouldGrantVote) {
+      context.test(condition, setsTermAndVotes, 3, lastLogIndex, lastLogTerm)
+    } else {
+      context.test(condition, ignoresRequest, 3, lastLogIndex, lastLogTerm)
     }
+  }
+}
 
-    const setsTerm = ({ term, lastLogIndex, lastLogTerm }) => {
-      context('the candidate’s term is ahead', () => {
-        it('updates its term to that of the candidate', async ctx => {
-          await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
-          assert(ctx.state.setTerm.calledOnce)
-          const { args: [value] } = ctx.state.setTerm.firstCall
-          assert(value === term)
-        })
+hasVotedForOtherCandidate.test('handleRequestVote() does not update its term if the candidate’s term is even and the candidate is denied a vote', t => {
+  const { candidate, follower, state } = t.context
+  follower.handleRequestVote(candidate, 2, { lastLogIndex: 2, lastLogTerm: 2 })
+  t.true(state.setTermAndVote.notCalled)
+  t.true(state.setTerm.notCalled)
+})
 
-        it('returns a promise for when the term is updated', async ctx => {
-          let updated
-          ctx.state.setTerm.returns(new Promise(resolve => {
-            updated = resolve
-          }))
+beforeVoteRequest.test('handleRequestVote() does not end up sending a GrantVote message to the candidate if the follower is destroyed while persisting its voting state', async t => {
+  const { candidate, follower, state } = t.context
+  let persisted
+  state.setTermAndVote.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-          const p = ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
+  follower.handleRequestVote(candidate, 3, { lastLogIndex: 2, lastLogTerm: 2 })
+  follower.destroy()
+  persisted()
 
-          const probe = Symbol()
-          updated(probe)
+  await Promise.resolve()
+  t.true(candidate.send.notCalled)
+})
 
-          assert(await p === probe)
-        })
-      })
-    }
+beforeVoteRequest.test('handleRequestVote() sends a GrantVote message to the candidate after the follower has persisting its voting state', async t => {
+  const { candidate, follower, state } = t.context
+  let persisted
+  state.setTermAndVote.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-    const grantsVote = ({ term, lastLogIndex, lastLogTerm }) => {
-      it('sets its term to that of the candidate, and votes', async ctx => {
-        await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
+  follower.handleRequestVote(candidate, 3, { lastLogIndex: 2, lastLogTerm: 2 })
+  t.true(candidate.send.notCalled)
+  persisted()
 
-        assert(ctx.state.setTermAndVote.calledOnce)
-        const { args: [value, id] } = ctx.state.setTermAndVote.firstCall
-        assert(value === term)
-        assert(id === ctx.peer.id)
-      })
+  await Promise.resolve()
+  t.true(candidate.send.calledOnce)
+  const { args: [granted] } = candidate.send.firstCall
+  t.deepEqual(granted, { type: GrantVote, term: 2 })
+})
 
-      context('the follower was destroyed while persisting the state', () => {
-        it('does not send a GrantVote message to the candidate', async ctx => {
-          let persisted
-          ctx.state.setTermAndVote.returns(new Promise(resolve => {
-            persisted = resolve
-          }))
+sentGrantVote.test('after granting a vote', dontBecomeCandidateAfterFirstTimeout)
+sentGrantVote.test('after granting a vote', becomeCandidateAfterSecondTimeout)
 
-          ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
-          ctx.follower.destroy()
-          persisted()
+test('handleAppendEntries() sends a RejectEntries message to the leader if its term is behind', t => {
+  const { follower, peers: [leader] } = t.context
+  follower.handleAppendEntries(leader, 1, { term: 1 })
 
-          await Promise.resolve()
-          assert(ctx.peer.send.notCalled)
-        })
-      })
+  t.true(leader.send.calledOnce)
+  const { args: [rejected] } = leader.send.firstCall
+  t.deepEqual(rejected, { type: RejectEntries, term: 2 })
+})
 
-      context('the follower was not destroyed while persisting the state', () => {
-        it('sends a GrantVote message to the candidate', async ctx => {
-          ctx.state._currentTerm.returns(term)
-          await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
+test('handleAppendEntries() does not merge entries if the leader’s term is behind', async t => {
+  const { follower, peers: [leader] } = t.context
+  // The other arguments should cause the entries to be merged, were it
+  // not for the outdated term.
+  await follower.handleAppendEntries(leader, 1, { term: 1, prevLogIndex: 0, prevLogTerm: 0, entries: [] })
+  // Verify the entries were indeed rejected and no other messages were sent.
+  t.true(leader.send.calledOnce)
+  const { args: [{ type }] } = leader.send.firstCall
+  t.true(type === RejectEntries)
+})
 
-          assert(ctx.peer.send.calledOnce)
-          const { args: [granted] } = ctx.peer.send.firstCall
-          assert.deepStrictEqual(granted, { type: GrantVote, term })
-        })
-      })
+test('handleAppendEntries() sends a RejectEntries message to the peer, without merging entries, if it doesn’t have the entry that preceeds the first sent entry (which isn’t the leader’s first entry)', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  log.getEntry.returns(undefined)
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
 
-      context('it does not receive other messages before the election timeout', () => {
-        beforeEach(ctx => ctx.follower.start())
+  t.true(leader.send.calledOnce)
+  const { args: [rejected] } = leader.send.firstCall
+  t.deepEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
+})
 
-        it('does not yet become a candidate', async ctx => {
-          await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
+test('handleAppendEntries() sends a RejectEntries message to the peer, without merging entries, if its entry that preceeds the first sent entry has the wrong term', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  log.getEntry.returns(new Entry(1, 2, Symbol()))
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
 
-          ctx.clock.tick(ctx.electionTimeout)
-          assert(ctx.follower.convertToCandidate.notCalled)
-        })
+  t.true(leader.send.calledOnce)
+  const { args: [rejected] } = leader.send.firstCall
+  t.deepEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
+})
 
-        context('another election timeout passes', () => {
-          it('becomes a candidate', async ctx => {
-            await ctx.follower.handleRequestVote(ctx.peer, term, { term, lastLogIndex, lastLogTerm })
+test('handleAppendEntries() merges the entries if its entry that preceeds the first sent entry has the right term', t => {
+  const { follower, log, peers: [leader] } = t.context
+  log.getEntry.returns(new Entry(1, 1, Symbol()))
+  const entries = Symbol()
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries, leaderCommit: 0 })
 
-            ctx.clock.tick(ctx.electionTimeout)
-            assert(ctx.follower.convertToCandidate.notCalled)
+  t.true(log.mergeEntries.calledOnce)
+  const { args: [merged] } = log.mergeEntries.firstCall
+  t.true(merged === entries)
+})
 
-            ctx.clock.tick(ctx.electionTimeout)
-            assert(ctx.follower.convertToCandidate.calledOnce)
-          })
-        })
-      })
-    }
+test('handleAppendEntries() merges the entries if the leader sends its first entry', t => {
+  const { follower, log, peers: [leader] } = t.context
+  const entries = Symbol()
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries, leaderCommit: 0 })
 
-    ;[
-      { ok: true, condition: 'not yet voted', setup (ctx) { ctx.state._votedFor.returns(null) } },
-      { ok: true, condition: 'has already voted for the candidate', setup (ctx) { ctx.state._votedFor.returns(ctx.peer.id) } },
-      { ok: false, condition: 'has already voted for another candidate', setup (ctx) { ctx.state._votedFor.returns(ctx.peers[1]) } }
-    ].forEach(({ ok, condition, setup }) => {
-      context(`the follower has ${condition}`, () => {
-        beforeEach(setup)
+  t.true(log.mergeEntries.calledOnce)
+  const { args: [merged] } = log.mergeEntries.firstCall
+  t.true(merged === entries)
+})
 
-        context('the candidate’s log index is behind', () => {
-          doesNotGrantVote({ term: 3, lastLogIndex: 1, lastLogTerm: 1 })
-          setsTerm({ term: 3, lastLogIndex: 1, lastLogTerm: 1 })
-        })
+appendingEntries.test('when entries are being merged', dontBecomeCandidateAfterFirstTimeout)
+appendingEntries.test('when entries are being merged', becomeCandidateAfterSecondTimeout)
 
-        context('the candidate’s log term is behind', () => {
-          doesNotGrantVote({ term: 2, lastLogIndex: 2, lastLogTerm: 1 })
-          setsTerm({ term: 3, lastLogIndex: 2, lastLogTerm: 1 })
-        })
+test('handleAppendEntries() updates its term to that of the leader if it is ahead, and entries are being merged', t => {
+  const { follower, leader, state } = t.context
+  follower.handleAppendEntries(leader, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 
-        ;[
-          { condition: 'index is equal, as is its term', index: 2, term: 2 },
-          { condition: 'index is equal, its term is ahead', index: 2, term: 2 },
-          { condition: 'index is ahead, its term is equal', index: 3, term: 2 },
-          { condition: 'index is ahead, its term is ahead', index: 3, term: 3 }
-        ].forEach(({ condition, index: lastLogIndex, term: lastLogTerm }) => {
-          context(`the candidate’s log ${condition}`, () => {
-            if (ok) {
-              grantsVote({ term: 3, lastLogIndex, lastLogTerm })
-            } else {
-              doesNotGrantVote({ term: 3, lastLogIndex, lastLogTerm })
-            }
-          })
-        })
-      })
-    })
-  })
+  t.true(state.setTerm.calledOnce)
+  const { args: [term] } = state.setTerm.firstCall
+  t.true(term === 3)
+})
 
-  describe('#handleAppendEntries (peer, term, { prevLogIndex, prevLogTerm, entries, leaderCommit }))', () => {
-    beforeEach(ctx => {
-      ctx.state._currentTerm.returns(2)
-    })
+test('handleAppendEntries() does not update its term to that of the leader if it is even, and entries are being merged', t => {
+  const { follower, leader, state } = t.context
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+  t.false(state.setTerm.calledOnce)
+})
 
-    context('the leader’s term is behind', () => {
-      it('sends a RejectEntries message to the peer', ctx => {
-        ctx.follower.handleAppendEntries(ctx.peer, 1, { term: 1 })
+test('handleAppendEntries() does not send an AcceptEntries message to the candidate, if the follower is destroyed while persisting its term', async t => {
+  const { follower, peers: [leader], state } = t.context
+  let persisted
+  state.setTerm.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-        assert(ctx.peer.send.calledOnce)
-        const { args: [rejected] } = ctx.peer.send.firstCall
-        assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2 })
-      })
+  follower.handleAppendEntries(leader, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+  t.true(state.setTerm.calledOnce)
+  follower.destroy()
+  persisted()
 
-      it('does not merge entries', async ctx => {
-        // The other arguments should cause the entries to be merged, were it
-        // not for the outdated term.
-        await ctx.follower.handleAppendEntries(ctx.peer, 1, { term: 1, prevLogIndex: 0, prevLogTerm: 0, entries: [] })
-        // Verify the entries were indeed rejected and no other messages were sent.
-        assert(ctx.peer.send.calledOnce)
-        const { args: [{ type }] } = ctx.peer.send.firstCall
-        assert(type === RejectEntries)
-      })
-    })
+  await new Promise(resolve => setImmediate(resolve))
+  t.true(leader.send.notCalled)
+})
 
-    context('the leader is not sending its first entry', () => {
-      context('the follower doesn’t have the entry that preceeds the first entry that was sent', () => {
-        it('sends a RejectEntries message to the peer, without merging entries', async ctx => {
-          ctx.log.getEntry.returns(undefined)
-          await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
+test('handleAppendEntries() sends an AcceptEntries message to the candidate, after the follower has persisted its term', async t => {
+  const { follower, peers: [leader], state } = t.context
+  let persisted
+  state.setTerm.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-          assert(ctx.peer.send.calledOnce)
-          const { args: [rejected] } = ctx.peer.send.firstCall
-          assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
-        })
-      })
+  follower.handleAppendEntries(leader, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+  t.true(state.setTerm.calledOnce)
+  state._currentTerm.returns(3)
+  persisted()
 
-      context('the follower does have a preceeding entry, but it has the wrong term', () => {
-        it('sends a RejectEntries message to the peer, without merging entries', async ctx => {
-          ctx.log.getEntry.returns(new Entry(1, 2, Symbol()))
-          await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
+  await new Promise(resolve => setImmediate(resolve))
+  t.true(leader.send.calledOnce)
+  const { args: [accepted] } = leader.send.firstCall
+  t.deepEqual(accepted, { type: AcceptEntries, term: 3, lastLogIndex: 0 })
+})
 
-          assert(ctx.peer.send.calledOnce)
-          const { args: [rejected] } = ctx.peer.send.firstCall
-          assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
-        })
-      })
+test('handleAppendEntries() does not send an AcceptEntries message to the candidate, if the follower is destroyed while persisting the entries', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  let persisted
+  log.mergeEntries.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-      context('the follower has the preceeding entry, with the right term', () => {
-        it('merges the entries', ctx => {
-          ctx.log.getEntry.returns(new Entry(1, 1, Symbol()))
-          const entries = Symbol()
-          ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries, leaderCommit: 0 })
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+  t.true(log.mergeEntries.calledOnce)
+  follower.destroy()
+  persisted()
 
-          assert(ctx.log.mergeEntries.calledOnce)
-          const { args: [merged] } = ctx.log.mergeEntries.firstCall
-          assert(merged === entries)
-        })
-      })
-    })
+  await new Promise(resolve => setImmediate(resolve))
+  t.true(leader.send.notCalled)
+})
 
-    context('the leader is sending its first entry', () => {
-      it('merges the entries', ctx => {
-        const entries = Symbol()
-        ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries, leaderCommit: 0 })
+test('handleAppendEntries() sends an AcceptEntries message to the candidate, after the follower has persisted the entries', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  let persisted
+  log.mergeEntries.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-        assert(ctx.log.mergeEntries.calledOnce)
-        const { args: [merged] } = ctx.log.mergeEntries.firstCall
-        assert(merged === entries)
-      })
-    })
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+  t.true(log.mergeEntries.calledOnce)
+  persisted()
 
-    context('entries are being merged', () => {
-      context('it does not receive other messages before the election timeout', () => {
-        beforeEach(ctx => ctx.follower.start())
+  await new Promise(resolve => setImmediate(resolve))
+  t.true(leader.send.calledOnce)
+  const { args: [accepted] } = leader.send.firstCall
+  t.deepEqual(accepted, { type: AcceptEntries, term: 2, lastLogIndex: 0 })
+})
 
-        it('does not yet become a candidate', async ctx => {
-          await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+test('handleAppendEntries() commits the log up to the leader’s commit index, if it is ahead', t => {
+  const { follower, log, peers: [leader] } = t.context
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
+  t.true(log.commit.calledOnce)
+  const { args: [commit] } = log.commit.firstCall
+  t.true(commit === 1)
+})
 
-          ctx.clock.tick(ctx.electionTimeout)
-          assert(ctx.follower.convertToCandidate.notCalled)
-        })
+test('handleAppendEntries() stores the leader’s commit index, if it is ahead', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
+  t.true(log.commit.calledOnce)
 
-        context('another election timeout passes', () => {
-          it('becomes a candidate', async ctx => {
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
+  // No second commit if the index is the same
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
+  t.true(log.commit.calledOnce)
 
-            ctx.clock.tick(ctx.electionTimeout)
-            assert(ctx.follower.convertToCandidate.notCalled)
+  // Another commit if the index is higher again
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 2 })
+  t.true(log.commit.calledTwice)
+})
 
-            ctx.clock.tick(ctx.electionTimeout)
-            assert(ctx.follower.convertToCandidate.calledOnce)
-          })
-        })
-      })
+test('handleAppendEntries() does not commit the log if the leader’s commit index is behind', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 10 })
+  log.commit.reset()
 
-      context('the leader’s term is ahead', () => {
-        it('updates its term to that of the leader', ctx => {
-          ctx.follower.handleAppendEntries(ctx.peer, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-
-          assert(ctx.state.setTerm.calledOnce)
-          const { args: [term] } = ctx.state.setTerm.firstCall
-          assert(term === 3)
-        })
-
-        context('the follower was destroyed while persisting the entries or state', () => {
-          it('does not send an AcceptEntries message to the candidate', async ctx => {
-            let persisted
-            ctx.state.setTerm.returns(new Promise(resolve => {
-              persisted = resolve
-            }))
-
-            ctx.follower.handleAppendEntries(ctx.peer, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-            ctx.follower.destroy()
-            persisted()
-
-            await new Promise(resolve => setImmediate(resolve))
-            assert(ctx.peer.send.notCalled)
-          })
-        })
-
-        context('the follower was not destroyed while persisting the entries or state', () => {
-          it('sends an AcceptEntries message to the candidate', async ctx => {
-            ctx.state._currentTerm.returns(3)
-            ctx.log._lastIndex.returns(1)
-            await ctx.follower.handleAppendEntries(ctx.peer, 3, { term: 3, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-
-            assert(ctx.peer.send.calledOnce)
-            const { args: [accepted] } = ctx.peer.send.firstCall
-            assert.deepStrictEqual(accepted, { type: AcceptEntries, term: 3, lastLogIndex: 1 })
-          })
-        })
-      })
-
-      context('the leader’s term is even with that of the follower', () => {
-        it('does not update its term', ctx => {
-          ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-          assert(ctx.state.setTerm.notCalled)
-        })
-
-        context('the follower was destroyed while persisting the entries', () => {
-          it('does not send an AcceptEntries message to the candidate', async ctx => {
-            let persisted
-            ctx.log.mergeEntries.returns(new Promise(resolve => {
-              persisted = resolve
-            }))
-
-            ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-            ctx.follower.destroy()
-            persisted()
-
-            await new Promise(resolve => setImmediate(resolve))
-            assert(ctx.peer.send.notCalled)
-          })
-        })
-
-        context('the follower was not destroyed while persisting the entries', () => {
-          it('sends an AcceptEntries message to the candidate', async ctx => {
-            ctx.log._lastIndex.returns(1)
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
-
-            assert(ctx.peer.send.calledOnce)
-            const { args: [accepted] } = ctx.peer.send.firstCall
-            assert.deepStrictEqual(accepted, { type: AcceptEntries, term: 2, lastLogIndex: 1 })
-          })
-        })
-      })
-
-      context('the leader’s commit index…', () => {
-        context('is ahead', () => {
-          it('commits the log up to the leader’s index', ctx => {
-            ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
-            assert(ctx.log.commit.calledOnce)
-            const { args: [commit] } = ctx.log.commit.firstCall
-            assert(commit === 1)
-          })
-
-          it('stores the leader’s commit index', async ctx => {
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
-            assert(ctx.log.commit.calledOnce)
-
-            // No second commit if the index is the same
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
-            assert(ctx.log.commit.calledOnce)
-
-            // Another commit if the index is higher again
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 2 })
-            assert(ctx.log.commit.calledTwice)
-          })
-        })
-
-        context('is behind', () => {
-          beforeEach(async ctx => {
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 10 })
-            ctx.log.commit.reset()
-          })
-
-          it('does not commit the log', async ctx => {
-            await ctx.follower.handleAppendEntries(ctx.peer, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 5 })
-            assert(ctx.log.commit.notCalled)
-          })
-        })
-      })
-    })
-  })
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 5 })
+  t.true(log.commit.notCalled)
 })

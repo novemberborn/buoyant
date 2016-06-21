@@ -1,133 +1,78 @@
-import { before, context, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import { stub } from 'sinon'
-
 import Address from '../lib/Address'
+import macro from './helpers/macro'
 
-describe('Address', () => {
-  describe('constructor (url)', () => {
-    context('url is not a string', () => {
-      it('throws a TypeError', () => {
-        assert.throws(() => new Address(undefined), TypeError, "Parameter 'url' must be a string, not undefined")
-      })
-    })
+const throwsTypeError = macro((t, url, message) => {
+  t.throws(() => new Address(url), TypeError, message)
+}, suffix => `throw when constructed with a URL that ${suffix}`)
 
-    ;[
-      { desc: 'has a protocol but no slashes', url: 'protocol:hostname/pathname', message: "Parameter 'url' requires protocol to be postfixed by ://" },
-      { desc: 'has no protocol and no slashes', url: 'hostname/pathname', message: "Parameter 'url' must start with // if no protocol is specified" },
-      { desc: 'has no pathname', url: 'protocol://hostname', message: 'Address must include a server ID' },
-      { desc: 'has / as its pathname', url: 'protocol://hostname/', message: 'Address must include a server ID' }
-    ].forEach(({ desc, url, message }) => {
-      context(`url ${desc}`, () => {
-        it('throws a TypeError', () => {
-          assert.throws(() => new Address(url), TypeError, message)
-        })
-      })
-    })
+const hasFields = macro((t, url, expected) => {
+  const address = new Address(url)
+  t.deepEqual(address, expected)
+}, (_, url) => `address for ${url} has expected fields`)
 
-    describe('the instance', () => {
-      const protocol = 'protocol'
-      const hostname = 'hostname'
-      const serverId = 'serverId'
-      ;[
-        {
-          url: 'protocol://hostname:42/serverId',
-          fields: { protocol, hostname, port: 42, serverId }
-        },
-        {
-          url: 'protocol://hostname/serverId',
-          fields: { protocol, hostname, port: null, serverId }
-        },
-        {
-          url: '//hostname/serverId',
-          fields: { protocol: null, hostname, port: null, serverId }
-        },
-        {
-          url: '///serverId',
-          fields: { protocol: null, hostname: null, port: null, serverId }
-        }
-      ].forEach(({ url, fields }) => {
-        context(`with url <${url}>`, () => {
-          before(ctx => {
-            ctx.address = new Address(url)
-          })
+const checkFieldConfiguration = macro((t, field) => {
+  const address = new Address('protocol://hostname/👾')
+  const { configurable, enumerable, writable } = Object.getOwnPropertyDescriptor(address, field)
+  t.false(configurable)
+  t.true(enumerable)
+  t.false(writable)
+}, (_, field) => `configuration of ${field} field is correct`)
 
-          for (const field in fields) {
-            const value = fields[field]
-            it(`has a ${field} field with value '${JSON.stringify(value)}'`, ctx => {
-              assert(ctx.address[field] === value)
-            })
-          }
-        })
-      })
-    })
-  })
+const testToString = macro((t, url) => {
+  const address = new Address(url)
+  t.true(address.toString() === url)
+}, (_, url) => `toString() of address with URL ${url} returns the equivalent URL string`)
 
-  ;['protocol', 'hostname', 'port', 'serverId'].forEach(field => {
-    describe(`#${field}`, () => {
-      before(ctx => {
-        const address = new Address('protocol://hostname/👾')
-        ctx.descriptor = Object.getOwnPropertyDescriptor(address, field)
-      })
+test('is not a string', throwsTypeError, undefined, "Parameter 'url' must be a string, not undefined")
+test('has a protocol but no slashes', throwsTypeError, 'protocol:hostname/pathname', "Parameter 'url' requires protocol to be postfixed by ://")
+test('has no protocol and no slashes', throwsTypeError, 'hostname/pathname', "Parameter 'url' must start with // if no protocol is specified")
+test('has no pathname', throwsTypeError, 'protocol://hostname', 'Address must include a server ID')
+test('has / as its pathname', throwsTypeError, 'protocol://hostname/', 'Address must include a server ID')
 
-      it('is not writable', ctx => {
-        assert(ctx.descriptor.writable === false)
-      })
+{
+  const [protocol, hostname, serverId] = ['protocol', 'hostname', 'serverId']
+  test(hasFields, 'protocol://hostname:42/serverId', { protocol, hostname, port: 42, serverId })
+  test(hasFields, 'protocol://hostname/serverId', { protocol, hostname, port: null, serverId })
+  test(hasFields, '//hostname/serverId', { protocol: null, hostname, port: null, serverId })
+  test(hasFields, '///serverId', { protocol: null, hostname: null, port: null, serverId })
+}
 
-      it('is not configurable', ctx => {
-        assert(ctx.descriptor.configurable === false)
-      })
+test(checkFieldConfiguration, 'protocol')
+test(checkFieldConfiguration, 'hostname')
+test(checkFieldConfiguration, 'port')
+test(checkFieldConfiguration, 'serverId')
 
-      it('is enumerable', ctx => {
-        assert(ctx.descriptor.enumerable === true)
-      })
-    })
-  })
+test(testToString, 'protocol://hostname:42/serverId')
+test(testToString, 'protocol://hostname/serverId')
+test(testToString, 'protocol:///serverId')
+test(testToString, '//hostname:42/serverId')
+test(testToString, '//hostname/serverId')
+test(testToString, '///serverId')
 
-  describe('#toString ()', () => {
-    ;[
-      'protocol://hostname:42/serverId',
-      'protocol://hostname/serverId',
-      'protocol:///serverId',
-      '//hostname:42/serverId',
-      '//hostname/serverId',
-      '///serverId'
-    ].forEach(url => {
-      context(`the address was created with url <${url}>`, () => {
-        it(`returns <${url}>`, () => {
-          assert(new Address(url).toString() === url)
-        })
-      })
-    })
-  })
+test('inspect() returns a string serialization of the address', t => {
+  const address = new Address('///👾')
+  stub(address, 'toString').returns('🎈')
+  t.true(address.inspect() === '[buoyant:Address 🎈]')
+})
 
-  describe('#inspect ()', () => {
-    it('returns a string serialization of the address', () => {
-      const address = new Address('///👾')
-      stub(address, 'toString').returns('🎈')
-      assert(address.inspect() === '[buoyant:Address 🎈]')
-    })
-  })
+test('is(obj) recognizes Address instances', t => {
+  t.true(Address.is(new Address('///👾')))
+})
 
-  describe('static is (obj)', () => {
-    it('recognizes Address instances', () => {
-      assert(Address.is(new Address('///👾')))
-    })
+test('is(obj) recognizes objects tagged with the buoyant:Address symbol', t => {
+  t.true(Address.is({ [Symbol.for('buoyant:Address')]: true }))
+})
 
-    it('recognizes objects tagged with the buoyant:Address symbol', () => {
-      assert(Address.is({ [Symbol.for('buoyant:Address')]: true }))
-    })
+test('is(obj) does not recognize other objects', t => {
+  t.false(Address.is({}))
+})
 
-    it('does not recognize other objects', () => {
-      assert(!Address.is({}))
-    })
+test('is(obj) does not recognize the undefined value', t => {
+  t.false(Address.is(undefined))
+})
 
-    it('does not recognize the undefined value', () => {
-      assert(!Address.is(undefined))
-    })
-
-    it('does not recognize the null value', () => {
-      assert(!Address.is(null))
-    })
-  })
+test('is(obj) does not recognize the null value', t => {
+  t.false(Address.is(null))
 })

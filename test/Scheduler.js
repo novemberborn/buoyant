@@ -1,167 +1,131 @@
-import { beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
+// https://github.com/avajs/eslint-plugin-ava/issues/127
+/* eslint-disable ava/use-t */
+
+import test from 'ava'
 import { spy, stub } from 'sinon'
 
 import Scheduler from '../lib/Scheduler'
 
-function remainsPending (promise) {
-  return new Promise((resolve, reject) => {
-    promise
-      .then(value => reject(new Error(`Promise was fulfilled with ${value}`)))
-      .catch(reason => reject(new Error(`Promise was rejected with ${reason}`)))
-    // Can't really tell if the promise remains pending, and can't wait too long
-    // either of course…
-    setImmediate(() => resolve(true))
-  })
-}
+import macro from './helpers/macro'
 
-describe('Scheduler', () => {
-  beforeEach(ctx => {
-    ctx.crashHandler = stub()
-    ctx.scheduler = new Scheduler(ctx.crashHandler)
-  })
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
 
-  describe('#asap (handleAbort = null, fn)', () => {
-    context('the scheduler was already aborted', () => {
-      beforeEach(ctx => ctx.scheduler.abort())
+const asapReturnsPending = macro(async (t, fn, setup = () => {}) => {
+  const { scheduler } = t.context
+  setup(t.context)
 
-      context('handleAbort is truthy', () => {
-        it('is called', ctx => {
-          const handleAbort = spy()
-          ctx.scheduler.asap(handleAbort)
-          assert(handleAbort.calledOnce)
-        })
-      })
+  const expected = Symbol()
+  const soon = new Promise(resolve => setImmediate(() => resolve(expected)))
+  t.true(await Promise.race([scheduler.asap(null, fn), soon]) === expected)
+}, suffix => `asap() returns a perpetually pending promise ${suffix}`)
 
-      it('returns a perpetually pending promise', async ctx => {
-        assert(await remainsPending(ctx.scheduler.asap()))
-      })
-    })
+const asapInvokesCrashHandler = macro(async (t, crashingFn) => {
+  const { crashHandler, scheduler } = t.context
+  const err = Symbol()
+  scheduler.asap(null, () => crashingFn(err))
 
-    context('no operation is currently active', () => {
-      it('calls fn', ctx => {
-        const fn = spy()
-        ctx.scheduler.asap(null, fn)
+  await new Promise(resolve => setImmediate(resolve))
+  t.true(crashHandler.calledOnce)
+  const { args: [reason] } = crashHandler.firstCall
+  t.true(reason === err)
+}, suffix => `asap() invokes the crashHandler ${suffix}`)
 
-        assert(fn.calledOnce)
-      })
+test.beforeEach(t => {
+  const crashHandler = stub()
+  const scheduler = new Scheduler(crashHandler)
 
-      context('fn throws', () => {
-        it('invokes the crashHandler with the error', ctx => {
-          const err = Symbol()
-          ctx.scheduler.asap(null, () => { throw err })
+  Object.assign(t.context, { crashHandler, scheduler })
+})
 
-          assert(ctx.crashHandler.calledOnce)
-          const { args: [reason] } = ctx.crashHandler.firstCall
-          assert(reason === err)
-        })
+test('asap() calls handleAbort when invoked after the scheduler is aborted', t => {
+  const { scheduler } = t.context
+  scheduler.abort()
+  const handleAbort = spy()
+  scheduler.asap(handleAbort)
+  t.true(handleAbort.calledOnce)
+})
 
-        it('returns a perpetually pending promise', async ctx => {
-          assert(await remainsPending(ctx.scheduler.asap(null, () => { throw new Error() })))
-        })
-      })
+test('when invoked after the scheduler is aborted', asapReturnsPending, () => {}, ({ scheduler }) => scheduler.abort())
 
-      context('fn has no return value', () => {
-        it('returns undefined', ctx => {
-          assert(ctx.scheduler.asap(null, () => {}) === undefined)
-        })
-      })
+test('asap() synchronously calls fn if no other operation is currently active', t => {
+  const { scheduler } = t.context
+  const fn = spy()
+  scheduler.asap(null, fn)
 
-      context('fn returns a promise', () => {
-        describe('the return value of the call to asap()', () => {
-          it('is a promise', ctx => {
-            assert(ctx.scheduler.asap(null, () => new Promise(() => {})) instanceof Promise)
-          })
-        })
+  t.true(fn.calledOnce)
+})
 
-        context('the promise returned by fn is fulfilled', () => {
-          describe('the promise returned by asap()', () => {
-            it('is fulfilled with undefined', async ctx => {
-              assert(await ctx.scheduler.asap(null, () => Promise.resolve(Symbol())) === undefined)
-            })
-          })
-        })
+test('with the error if fn throws', asapInvokesCrashHandler, err => { throw err })
 
-        context('the promise returned by fn is rejected', () => {
-          it('invokes the crashHandler with the rejection reason', async ctx => {
-            const err = Symbol()
-            ctx.scheduler.asap(null, () => Promise.reject(err))
+test('if fn throws', asapReturnsPending, () => { throw new Error() })
 
-            await new Promise(resolve => setImmediate(resolve))
-            assert(ctx.crashHandler.calledOnce)
-            const { args: [reason] } = ctx.crashHandler.firstCall
-            assert(reason === err)
-          })
+test('asap() returns undefined if fn doesn’t return a promise', t => {
+  const { scheduler } = t.context
+  t.true(scheduler.asap(null, () => {}) === undefined)
+})
 
-          describe('the promise returned by asap()', () => {
-            it('remains perpetually pending', async ctx => {
-              assert(await remainsPending(ctx.scheduler.asap(null, () => Promise.reject())))
-            })
-          })
-        })
-      })
-    })
+test('asap() returns a promise if fn returns a promise', t => {
+  const { scheduler } = t.context
+  t.true(scheduler.asap(null, () => new Promise(() => {})) instanceof Promise)
+})
 
-    context('another operation is currently active', () => {
-      it('prevents two operations from being run at the same time', ctx => {
-        ctx.scheduler.asap(null, () => new Promise(() => {}))
-        const second = spy()
-        ctx.scheduler.asap(null, second)
+test('asap() fulfils its promise with undefined once the fn-returned promise fulfils', async t => {
+  const { scheduler } = t.context
+  t.true(await scheduler.asap(null, () => Promise.resolve(Symbol())) === undefined)
+})
 
-        assert(second.notCalled)
-      })
+test('with the rejection reason if the fn-returned promise rejects', asapInvokesCrashHandler, err => Promise.reject(err))
+test('if the fn-returned promise rejects', asapReturnsPending, () => Promise.reject(new Error()))
 
-      it('returns a promise for when the second operation has finished', ctx => {
-        ctx.scheduler.asap(null, () => new Promise(() => {}))
-        assert(ctx.scheduler.asap(null, () => {}) instanceof Promise)
-      })
+test('asap() prevents two operations from being run at the same time', t => {
+  const { scheduler } = t.context
+  scheduler.asap(null, () => new Promise(() => {}))
+  const second = spy()
+  scheduler.asap(null, second)
 
-      describe('the second operation', () => {
-        it('is run after the first', async ctx => {
-          ctx.scheduler.asap(null, () => Promise.resolve())
-          const second = spy()
-          await ctx.scheduler.asap(null, second)
+  t.true(second.notCalled)
+})
 
-          assert(second.calledOnce)
-        })
-      })
+test('asap() returns a promise for when the second operation has finished', t => {
+  const { scheduler } = t.context
+  scheduler.asap(null, () => new Promise(() => {}))
+  const p = scheduler.asap(null, () => {})
+  t.true(p instanceof Promise)
+})
 
-      describe('a third operation', () => {
-        it('is run after the second', async ctx => {
-          ctx.scheduler.asap(null, () => Promise.resolve())
-          const second = spy()
-          ctx.scheduler.asap(null, second)
-          const third = spy()
-          await ctx.scheduler.asap(null, third)
+test('asap() runs scheduled operations in order', async t => {
+  const { scheduler } = t.context
+  scheduler.asap(null, () => Promise.resolve())
+  const second = spy()
+  scheduler.asap(null, second)
+  const third = spy()
+  await scheduler.asap(null, third)
 
-          assert(second.calledBefore(third))
-        })
-      })
-    })
-  })
+  t.true(second.calledBefore(third))
+})
 
-  describe('#abort ()', () => {
-    it('stops any remaining operations from being run', async ctx => {
-      const first = ctx.scheduler.asap(null, () => Promise.resolve())
-      const second = spy()
-      ctx.scheduler.asap(null, second)
+test('abort() stops any remaining operations from being run', async t => {
+  const { scheduler } = t.context
+  const first = scheduler.asap(null, () => Promise.resolve())
+  const second = spy()
+  scheduler.asap(null, second)
 
-      ctx.scheduler.abort()
-      await first
-      assert(second.notCalled)
-    })
+  scheduler.abort()
+  await first
+  t.true(second.notCalled)
+})
 
-    it('invokes the handleAbort callbacks of any remaining operations', ctx => {
-      const first = spy()
-      ctx.scheduler.asap(first, () => Promise.resolve())
-      const second = spy()
-      ctx.scheduler.asap(second, () => {})
-      const third = spy()
-      ctx.scheduler.asap(third, () => {})
+test('abort() invokes the handleAbort callbacks of any remaining operations', t => {
+  const { scheduler } = t.context
+  const first = spy()
+  scheduler.asap(first, () => Promise.resolve())
+  const second = spy()
+  scheduler.asap(second, () => {})
+  const third = spy()
+  scheduler.asap(third, () => {})
 
-      ctx.scheduler.abort()
-      assert(first.notCalled)
-      assert(second.calledBefore(third))
-    })
-  })
+  scheduler.abort()
+  t.true(first.notCalled)
+  t.true(second.calledBefore(third))
 })

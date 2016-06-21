@@ -1,553 +1,523 @@
-import { before, beforeEach, describe, context, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import proxyquire from 'proxyquire'
 import { spy, stub } from 'sinon'
 
-import { getReason } from './support/utils'
-
-import exposeEvents from '../lib/expose-events'
+import _exposeEvents from '../lib/expose-events'
 import Address from '../lib/Address'
 
-function schedulePromiseCallback (cb) {
-  Promise.resolve().then(cb).catch(() => undefined)
+import fork from './helpers/fork-context'
+import macro from './helpers/macro'
+
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
+
+const shared = {
+  exposeEvents () {},
+  Raft () {}
 }
 
-describe('Server', () => {
-  before(ctx => {
-    ctx.exposeEvents = spy((...args) => exposeEvents(...args))
-    ctx.Raft = spy(() => stub({
-      replaceState () {},
-      replaceLog () {},
-      close () {},
-      destroy () {},
-      joinInitialCluster () {},
-      append () {}
-    }))
+const { default: Server } = proxyquire.noCallThru()('../lib/Server', {
+  './expose-events': function (...args) { return shared.exposeEvents(...args) },
+  './Raft': function (...args) { return shared.Raft(...args) }
+})
 
-    ctx.createTransport = spy(() => stub({
-      listen () {},
-      connect () {},
-      destroy () {}
-    }))
+const checkDefinition = macro((t, field) => {
+  const { server } = t.context
+  const { configurable, enumerable, value, writable } = Object.getOwnPropertyDescriptor(server, field)
+  t.false(configurable)
+  t.true(enumerable)
+  t.true(value === t.context[field])
+  t.false(writable)
+}, (_, field) => `set ${field}`)
 
-    ctx.Server = proxyquire.noCallThru()('../lib/Server', {
-      './expose-events': function (...args) { return ctx.exposeEvents(...args) },
-      './Raft': function (...args) { return ctx.Raft(...args) }
-    })['default']
-  })
+const propagatesCall = macro((t, method, args = [], otherMethod = method) => {
+  const { raft, server } = t.context
+  server[method](...args)
+  t.true(raft[otherMethod].calledOnce)
+  const { args: receivedArgs } = raft[otherMethod].firstCall
+  t.deepEqual(receivedArgs, args)
+}, (_, method) => `${method}() calls ${method}() on the raft implementation`)
 
-  beforeEach(ctx => {
-    ctx.exposeEvents.reset()
-    ctx.Raft.reset()
-    ctx.createTransport.reset()
+const destroysTransportIfJoined = macro((t, method) => {
+  const { createTransport, server } = t.context
+  server.join()
+  const { returnValue: transport } = createTransport.firstCall
 
-    const id = ctx.id = Symbol()
-    const address = ctx.address = Symbol()
-    const electionTimeoutWindow = ctx.electionTimeoutWindow = Symbol()
-    const heartbeatInterval = ctx.heartbeatInterval = Symbol()
-    const persistState = ctx.persistState = Symbol()
-    const persistEntries = ctx.persistEntries = Symbol()
-    const applyEntry = ctx.applyEntry = Symbol()
-    const crashHandler = ctx.crashHandler = Symbol()
+  server[method]()
+  t.true(transport.destroy.calledOnce)
+}, (_, method) => `${method}() destroys the transport if the server has joined a cluster`)
 
-    // Proxy ctx.createTransport() via a wrapper object, allowing tests to
-    // change the implementation even after the server instance was created.
-    ctx.createTransportProxy = { createTransport: ctx.createTransport }
-    const createTransport = (...args) => ctx.createTransportProxy.createTransport(...args)
+const onlyDestroysTransportOnce = macro((t, method) => {
+  const { createTransport, server } = t.context
+  server.join()
+  const { returnValue: transport } = createTransport.firstCall
 
-    ctx.server = new ctx.Server({ id, address, electionTimeoutWindow, heartbeatInterval, createTransport, persistState, persistEntries, applyEntry, crashHandler })
-    ctx.raft = ctx.server._raft
-  })
+  server[method]()
+  t.true(transport.destroy.calledOnce)
 
-  describe('constructor ({ id, address, electionTimeoutWindow, heartbeatInterval, createTransport, persistState, persistEntries, applyEntry, crashHandler })', () => {
-    it('instantiates the raft implementation', ctx => {
-      assert(ctx.Raft.calledOnce)
-      assert(ctx.raft === ctx.Raft.firstCall.returnValue)
+  server[method]()
+  t.true(transport.destroy.calledOnce)
+}, (_, method) => `${method}() only destroys the transport once, even if called multiple times`)
 
-      const { args: [{ id, electionTimeoutWindow, heartbeatInterval, persistState, persistEntries, applyEntry, crashHandler, emitEvent }] } = ctx.Raft.firstCall
-      assert(id === ctx.id)
-      assert(electionTimeoutWindow === ctx.electionTimeoutWindow)
-      assert(heartbeatInterval === ctx.heartbeatInterval)
-      assert(persistState === ctx.persistState)
-      assert(persistEntries === ctx.persistEntries)
-      assert(applyEntry === ctx.applyEntry)
-      assert(crashHandler === ctx.crashHandler)
-      assert(typeof emitEvent === 'function')
-    })
+function setupTransportDestroy (context, method) {
+  const { raft, server, createTransport } = context
+  server.join()
+  const { returnValue: transport } = createTransport.firstCall
+  raft[method].returns(Promise.resolve())
 
-    context('the raft implementation emits an event', () => {
-      it('is emitted on the server', async ctx => {
-        const listener = spy()
-        const event = Symbol()
-        ctx.server.on(event, listener)
+  return Object.assign({ transport }, context)
+}
 
-        const { args: [{ emitEvent }] } = ctx.Raft.firstCall
+const handlesTransportDestroyPromise = macro(async (t, method) => {
+  const { server, transport } = setupTransportDestroy(t.context, method)
+  transport.destroy.returns(Promise.resolve())
 
-        const args = [Symbol(), Symbol()]
-        emitEvent(event, ...args)
+  t.true(await server[method]() === undefined)
+}, (_, method, pastTense) => `${method}() returns a promise that is fulfilled once the promise returned when destroying the transport is fulfilled, and the raft implementation has ${pastTense}`)
 
-        await Promise.resolve()
-        assert(listener.calledOnce)
-        const { args: receivedArgs } = listener.firstCall
-        assert.deepStrictEqual(receivedArgs, args)
-      })
-    })
+const handlesTransportDestroyVoid = macro(async (t, method) => {
+  const { server } = setupTransportDestroy(t.context, method)
 
-    it('exposes events', ctx => {
-      assert(ctx.exposeEvents.calledOnce)
-      const { args: [context] } = ctx.exposeEvents.firstCall
-      assert(context === ctx.server)
-    })
+  t.true(await server[method]() === undefined)
+}, (_, method, pastTense) => `${method}() returns a promise that is fulfilled once the raft implementation is ${pastTense}, if destroying the transport did not result in a promise`)
 
-    ;['id', 'address'].forEach(prop => {
-      it(`sets ${prop} on the instance`, ctx => {
-        const { value, writable, configurable, enumerable } = Object.getOwnPropertyDescriptor(ctx.server, prop)
-        assert(value === ctx[prop])
-        assert(writable === false)
-        assert(configurable === false)
-        assert(enumerable === true)
-      })
-    })
-  })
+const handlesTransportDestroyReject = macro(async (t, method) => {
+  const { server, transport } = setupTransportDestroy(t.context, method)
+  const err = new Error()
+  transport.destroy.returns(Promise.reject(err))
 
-  describe('#restoreState (state)', () => {
-    context('the server has joined a cluster', () => {
-      it('throws', ctx => {
-        ctx.server.join()
-        assert.throws(() => ctx.server.restoreState(), Error, 'Restoring state is no longer allowed')
-      })
-    })
+  const actualErr = await t.throws(server[method]())
+  t.true(actualErr === err)
+}, (_, method) => `${method}() returns a promise that, if the promise returned when destroying the transport is rejected, is rejected with that reason`)
 
-    context('the server has not joined a cluster', () => {
-      it('calls replaceState() on the raft implementation', ctx => {
-        const state = Symbol()
-        ctx.server.restoreState(state)
-        assert(ctx.raft.replaceState.calledOnce)
-        const { args: [replaced] } = ctx.raft.replaceState.firstCall
-        assert(replaced === state)
-      })
-    })
-  })
+const handlesTransportDestroyThrow = macro(async (t, method) => {
+  const { server, transport } = setupTransportDestroy(t.context, method)
+  const err = new Error()
+  transport.destroy.throws(err)
 
-  describe('#restoreLog (entries, lastApplied)', () => {
-    context('the server has joined a cluster', () => {
-      it('throws', ctx => {
-        ctx.server.join()
-        assert.throws(() => ctx.server.restoreLog(), Error, 'Restoring log is no longer allowed')
-      })
-    })
+  const actualErr = await t.throws(server[method]())
+  t.true(actualErr === err)
+}, (_, method) => `${method}() returns a promise that, if an error was thrown while destroying the transport, is rejected with that error`)
 
-    context('the server has not joined a cluster', () => {
-      it('calls restoreLog() on the raft implementation', ctx => {
-        const [entries, lastApplied] = [Symbol(), Symbol()]
-        ctx.server.restoreLog(entries, lastApplied)
-        assert(ctx.raft.replaceLog.calledOnce)
-        const { args: [replacedEntries, replacedApplied] } = ctx.raft.replaceLog.firstCall
-        assert(replacedEntries === entries)
-        assert(replacedApplied === lastApplied)
-      })
-    })
-  })
+const returnsFulfilledPromiseIfNotJoined = macro(async (t, method) => {
+  const { server } = t.context
+  t.true(await server[method]() === undefined)
+}, (infix, method) => `${method}() returns a promise that, ${infix}, is fulfilled`)
 
-  const closeOrDestroy = (which, pastTense) => {
-    it(`calls ${which}() on the raft implementation`, ctx => {
-      ctx.server[which]()
-      assert(ctx.raft[which].calledOnce)
-    })
+const propagatesRejectedPromise = macro(async (t, method) => {
+  const { raft, server } = t.context
+  const err = new Error()
+  raft[method].returns(Promise.reject(err))
+  const actualErr = await t.throws(server[method]())
+  t.true(actualErr === err)
+}, (infix, method) => `${method}() returns a promise that, ${infix}, is rejected with that reason`)
 
-    context('the server has joined a cluster', () => {
-      it('destroys the transport', ctx => {
-        ctx.server.join()
-        const { returnValue: transport } = ctx.createTransport.firstCall
+function setupListenFailure (context, setup) {
+  const err = new Error()
+  setup(context, err)
+  return Object.assign({ err }, context)
+}
 
-        ctx.server[which]()
-        assert(transport.destroy.calledOnce)
-      })
-    })
+const destroysTransportAfterListenFailure = macro(async (t, setup) => {
+  const { server, transport } = setupListenFailure(t.context, setup)
+  t.plan(1)
+  try {
+    await server.join()
+  } catch (_) {
+    t.true(transport.destroy.calledOnce)
+  }
+}, condition => `join() destroys the transport if ${condition}`)
 
-    context(`the raft implementation was ${pastTense} successfully`, () => {
-      beforeEach(ctx => ctx.raft[which].returns(Promise.resolve()))
+const rejectsJoinPromiseWithListenFailure = macro(async (t, setup) => {
+  const { err, server } = setupListenFailure(t.context, setup)
+  const actualErr = await t.throws(server.join())
+  t.true(actualErr === err)
+}, condition => `join() returns a promise that, if ${condition}, is rejected with that reason`)
 
-      context('there was a transport to destroy', () => {
-        beforeEach(ctx => {
-          ctx.server.join()
-          const { returnValue: transport } = ctx.createTransport.firstCall
-          ctx.transport = transport
-        })
+const rejectsJoinPromiseWithListenFailureEvenIfTransportDestroyReject = macro(async (t, setup) => {
+  const { err, server, transport } = setupListenFailure(t.context, setup)
+  transport.destroy.returns(Promise.reject(new Error()))
 
-        context('it returned a fulfilled promise', () => {
-          it('fulfills the returned promise', async ctx => {
-            ctx.transport.destroy.returns(Promise.resolve())
-            assert(await ctx.server[which]() === undefined)
-          })
-        })
+  const actualErr = await t.throws(server.join())
+  t.true(actualErr === err)
+}, condition => `join() returns a promise that, if ${condition}, is rejected with that reason, even if the promise returned when destroying the transport is rejected`)
 
-        context('it did not return a promise', () => {
-          it('fulfills the returned promise', async ctx => {
-            ctx.transport.destroy.returns({})
-            assert(await ctx.server[which]() === undefined)
-          })
-        })
+const rejectsJoinPromiseWithListenFailureEvenIfTransportDestroyThrow = macro(async (t, setup) => {
+  const { err, server, transport } = setupListenFailure(t.context, setup)
+  transport.destroy.throws(new Error())
+  const actualErr = await t.throws(server.join())
+  t.true(actualErr === err)
+}, condition => `join() returns a promise that, if ${condition}, is rejected with that reason, even if an error was thrown when destroying the transport`)
 
-        context('the transport failed to destroy', () => {
-          context('it returned a rejected promise', () => {
-            it('rejects the returned promise with the rejection reason', async ctx => {
-              const err = Symbol()
-              ctx.transport.destroy.returns(Promise.reject(err))
-              assert(await getReason(ctx.server[which]()) === err)
-            })
-          })
+const rejectsJoinPromiseWithListenFailureEvenIfServerClosed = macro(async (t, setup) => {
+  const { err, server } = setupListenFailure(t.context, setup)
 
-          context('it threw an error', () => {
-            it('rejects the returned promise with the error', async ctx => {
-              const err = Symbol()
-              ctx.transport.destroy.throws(err)
-              assert(await getReason(ctx.server[which]()) === err)
-            })
-          })
-        })
-      })
+  // The handling of the listening failure is asynchronous, meaning
+  // the server can be closed between the error occurring and it
+  // being handled. Set that up here.
+  Promise.resolve().then(() => server.close()).catch(() => {})
 
-      context('there was no transport to destroy', () => {
-        it('fulfills the returned promise', async ctx => {
-          assert(await ctx.server[which]() === undefined)
-        })
-      })
-    })
+  const actualErr = await t.throws(server.join())
+  t.true(actualErr === err)
+}, condition => `join() returns a promise that, if ${condition}, is rejected with that reason, even if the server was closed in the meantime`)
 
-    context(`the raft implementation failed to ${which}`, () => {
-      it('rejects the returned promise with the failure reason', async ctx => {
-        const err = Symbol()
-        ctx.raft[which].returns(Promise.reject(err))
-        assert(await getReason(ctx.server[which]()) === err)
-      })
+const rejectsJoinPromiseWithListenFailureEvenIfServerDestroyed = macro(async (t, setup) => {
+  const { err, server } = setupListenFailure(t.context, setup)
+
+  // The handling of the listening failure is asynchronous, meaning
+  // the server can be closed between the error occurring and it
+  // being handled. Set that up here.
+  Promise.resolve().then(() => server.destroy()).catch(() => {})
+
+  const actualErr = await t.throws(server.join())
+  t.true(actualErr === err)
+}, condition => `join() returns a promise that, if ${condition}, is rejected with that reason, even if the server was destroyed in the meantime`)
+
+const joinsClusterOnceListenSucceeds = macro(async (t, setup) => {
+  const { raft, server, transport } = t.context
+  const nonPeerStream = Symbol()
+  setup(transport.listen, nonPeerStream)
+  await server.join()
+
+  t.true(raft.joinInitialCluster.calledOnce)
+  const { args: [{ addresses, connect, nonPeerStream: receivedNonPeerStream }] } = raft.joinInitialCluster.firstCall
+  t.true(Array.isArray(addresses))
+  t.true(typeof connect === 'function')
+  t.true(receivedNonPeerStream === nonPeerStream)
+}, condition => `join() joins the cluster once ${condition}`)
+
+test.beforeEach(t => {
+  const exposeEvents = spy((...args) => _exposeEvents(...args))
+  const Raft = spy(() => stub({
+    replaceState () {},
+    replaceLog () {},
+    close () {},
+    destroy () {},
+    joinInitialCluster () {},
+    append () {}
+  }))
+
+  const createTransport = spy(() => stub({
+    listen () {},
+    connect () {},
+    destroy () {}
+  }))
+
+  const id = Symbol()
+  const address = Symbol()
+  const electionTimeoutWindow = Symbol()
+  const heartbeatInterval = Symbol()
+  const persistState = Symbol()
+  const persistEntries = Symbol()
+  const applyEntry = Symbol()
+  const crashHandler = Symbol()
+
+  // Proxy createTransport() via a wrapper object, allowing tests to
+  // change the implementation even after the server instance was created.
+  const createTransportProxy = { createTransport }
+
+  const createServer = () => {
+    return new Server({
+      address,
+      applyEntry,
+      crashHandler,
+      createTransport (...args) { return createTransportProxy.createTransport(...args) },
+      electionTimeoutWindow,
+      heartbeatInterval,
+      id,
+      persistEntries,
+      persistState
     })
   }
 
-  describe('#close ()', () => {
-    closeOrDestroy('close', 'closed')
-
-    context('called multiple times', () => {
-      it('returns the same promise', ctx => {
-        const p1 = ctx.server.close()
-        const p2 = ctx.server.close()
-        assert(p1 === p2)
-      })
-
-      context('there was a transport to destroy', () => {
-        it('is only destroyed once', ctx => {
-          ctx.server.join()
-          const { returnValue: transport } = ctx.createTransport.firstCall
-          ctx.transport = transport
-
-          ctx.server.close()
-          assert(ctx.transport.destroy.calledOnce)
-
-          ctx.server.close()
-          assert(ctx.transport.destroy.calledOnce)
-        })
-      })
-    })
-
-    context('called after destroy()', () => {
-      it('returns the same promise as was last returned by destroy()', ctx => {
-        const p1 = ctx.server.destroy()
-        const p2 = ctx.server.close()
-        assert(p1 === p2)
-      })
-    })
+  // Note that the next tests' beforeEach hook overrides the shared stubs. Tests
+  // where these classes are instantiated asynchronously need to be marked as
+  // serial.
+  Object.assign(shared, {
+    exposeEvents,
+    Raft
   })
 
-  describe('#destroy ()', () => {
-    closeOrDestroy('destroy', 'destroyed')
-
-    context('called multiple times', () => {
-      it('returns a different promise each time', ctx => {
-        const p1 = ctx.server.destroy()
-        const p2 = ctx.server.destroy()
-        assert(p1 !== p2)
-      })
-
-      context('there was a transport to destroy', () => {
-        it('is only destroyed once', ctx => {
-          ctx.server.join()
-          const { returnValue: transport } = ctx.createTransport.firstCall
-          ctx.transport = transport
-
-          ctx.server.destroy()
-          assert(ctx.transport.destroy.calledOnce)
-
-          ctx.server.destroy()
-          assert(ctx.transport.destroy.calledOnce)
-        })
-      })
-    })
-
-    context('called after close()', () => {
-      it('returns a different promise', ctx => {
-        const p1 = ctx.server.close()
-        const p2 = ctx.server.destroy()
-        assert(p1 !== p2)
-      })
-    })
+  Object.assign(t.context, {
+    address,
+    applyEntry,
+    crashHandler,
+    createServer,
+    createTransport,
+    createTransportProxy,
+    electionTimeoutWindow,
+    exposeEvents,
+    heartbeatInterval,
+    id,
+    persistEntries,
+    persistState,
+    Raft
   })
+})
 
-  describe('#join (addresses = [])', () => {
-    it('creates Address instances if necessary', async ctx => {
-      await ctx.server.join(['///first', '///second'])
+const withInstance = fork().beforeEach(t => {
+  const { createServer } = t.context
+  const server = createServer()
+  const { _raft: raft } = server
+  Object.assign(t.context, { raft, server })
+})
 
-      const { args: [{ addresses }] } = ctx.raft.joinInitialCluster.firstCall
-      assert(addresses.length === 2)
-      assert(addresses[0].serverId === 'first')
-      assert(addresses[1].serverId === 'second')
-    })
+const withTransport = withInstance.fork().beforeEach(t => {
+  const { createTransport, createTransportProxy } = t.context
 
-    context('an invalid address is encountered', () => {
-      it('rejects the returned promise with the error', async ctx => {
-        assert(await getReason(ctx.server.join(['invalid'])) instanceof TypeError)
-      })
-    })
+  // Get a valid transport stub, then change createTransport() to
+  // always return that stub.
+  const transport = createTransport()
+  createTransportProxy.createTransport = stub().returns(transport)
+  Object.assign(t.context, { transport })
+})
 
-    context('an Address instance was provided', () => {
-      it('is used as-is', async ctx => {
-        const address = new Address('///foo')
-        await ctx.server.join([address])
+const withConnect = withTransport.fork().beforeEach(async t => {
+  const { raft, server } = t.context
+  await server.join()
 
-        const { args: [{ addresses }] } = ctx.raft.joinInitialCluster.firstCall
-        assert(addresses.length === 1)
-        assert(addresses[0] === address)
-      })
-    })
+  const { args: [{ connect }] } = raft.joinInitialCluster.firstCall
+  Object.assign(t.context, { connect })
+})
 
-    context('no addresses argument was provided', () => {
-      it('joins an empty cluster', async ctx => {
-        await ctx.server.join()
+test('instantiate the raft implementation', t => {
+  const { createServer, Raft } = t.context
+  createServer()
+  t.true(Raft.calledOnce)
 
-        const { args: [{ addresses }] } = ctx.raft.joinInitialCluster.firstCall
-        assert(addresses.length === 0)
-      })
-    })
+  const {
+    id: expectedId,
+    electionTimeoutWindow: expectedElectionTimeoutWindow,
+    heartbeatInterval: expectedHeartbeatInterval,
+    persistState: expectedPersistState,
+    persistEntries: expectedPersistEntries,
+    applyEntry: expectedApplyEntry,
+    crashHandler: expectedCrashHandler
+  } = t.context
+  const { args: [{ id, electionTimeoutWindow, heartbeatInterval, persistState, persistEntries, applyEntry, crashHandler, emitEvent }] } = Raft.firstCall
+  t.true(id === expectedId)
+  t.true(electionTimeoutWindow === expectedElectionTimeoutWindow)
+  t.true(heartbeatInterval === expectedHeartbeatInterval)
+  t.true(persistState === expectedPersistState)
+  t.true(persistEntries === expectedPersistEntries)
+  t.true(applyEntry === expectedApplyEntry)
+  t.true(crashHandler === expectedCrashHandler)
+  t.true(typeof emitEvent === 'function')
+})
 
-    context('the server already joined a cluster', () => {
-      it('rejects the returned promise', async ctx => {
-        ctx.server.join()
-        const reason = await getReason(ctx.server.join())
-        assert(reason instanceof Error)
-        assert(reason.message === 'Joining a cluster is no longer allowed')
-      })
-    })
+withInstance.test('remits events from the raft implementation', async t => {
+  const { server, Raft } = t.context
+  const listener = spy()
+  const event = Symbol()
+  server.on(event, listener)
 
-    context('the server was closed', () => {
-      it('rejects the returned promise', async ctx => {
-        ctx.server.close()
-        const reason = await getReason(ctx.server.join())
-        assert(reason instanceof Error)
-        assert(reason.message === 'Server is closed')
-      })
-    })
+  const { args: [{ emitEvent }] } = Raft.firstCall
 
-    context('the server was destroyed', () => {
-      it('rejects the returned promise', async ctx => {
-        ctx.server.destroy()
-        const reason = await getReason(ctx.server.join())
-        assert(reason instanceof Error)
-        assert(reason.message === 'Server is closed')
-      })
-    })
+  const args = [Symbol(), Symbol()]
+  emitEvent(event, ...args)
 
-    it('creates the transport', ctx => {
-      ctx.server.join()
-      assert(ctx.createTransport.calledOnce)
-      const { args: [address] } = ctx.createTransport.firstCall
-      assert(address === ctx.address)
-    })
+  await Promise.resolve()
+  t.true(listener.calledOnce)
+  const { args: receivedArgs } = listener.firstCall
+  t.deepEqual(receivedArgs, args)
+})
 
-    it('calls listen() on the transport', ctx => {
-      ctx.server.join()
-      const { returnValue: transport } = ctx.createTransport.firstCall
-      assert(transport.listen.calledOnce)
-    })
+test('expose events', t => {
+  const { createServer, exposeEvents } = t.context
+  const server = createServer()
+  t.true(exposeEvents.calledOnce)
+  const { args: [context] } = exposeEvents.firstCall
+  t.true(context === server)
+})
 
-    const testJoinFailureHandling = (type, getError) => {
-      context('the server was not closed or destroyed', () => {
-        it('destroys the transport', async ctx => {
-          await getReason(ctx.server.join())
+withInstance.test(checkDefinition, 'id')
+withInstance.test(checkDefinition, 'address')
 
-          assert(ctx.transport.destroy.calledOnce)
-        })
+withInstance.test('restoreState() throws once the server has joined a cluster', t => {
+  const { server } = t.context
+  server.join()
+  t.throws(() => server.restoreState(), Error, 'Restoring state is no longer allowed')
+})
 
-        it(`rejects the returned promise with the ${type} failure`, async ctx => {
-          assert(await getReason(ctx.server.join()) === getError(ctx))
-        })
+withInstance.test(propagatesCall, 'restoreState', [Symbol()], 'replaceState')
 
-        context('destroying the transport fails', () => {
-          context('it returned a rejected promise', () => {
-            it(`rejects the returned promise with the ${type} failure`, async ctx => {
-              ctx.transport.destroy.returns(Promise.reject(Symbol()))
-              assert(await getReason(ctx.server.join()) === getError(ctx))
-            })
-          })
+withInstance.test('restoreLog() throws once the server has joined a cluster', t => {
+  const { server } = t.context
+  server.join()
+  t.throws(() => server.restoreLog(), Error, 'Restoring log is no longer allowed')
+})
 
-          context('it threw an error', () => {
-            it(`rejects the returned promise with the ${type} failure`, async ctx => {
-              ctx.transport.destroy.throws(Symbol())
-              assert(await getReason(ctx.server.join()) === getError(ctx))
-            })
-          })
-        })
-      })
+withInstance.test(propagatesCall, 'restoreLog', [Symbol(), Symbol()], 'replaceLog')
 
-      context('the server was closed', () => {
-        it(`rejects the returned promise with the ${type} failure`, async ctx => {
-          // The handling of the listening failure is asynchronous, meaning
-          // the server can be closed between the error occurring and it
-          // being handled. Set that up here.
-          schedulePromiseCallback(() => ctx.server.close())
-          assert(await getReason(ctx.server.join()) === getError(ctx))
-        })
-      })
+for (const [method, pastTense] of [['close', 'closed'], ['destroy', 'destroyed']]) {
+  withInstance.test(propagatesCall, method)
+  withInstance.test(destroysTransportIfJoined, method)
+  withInstance.test(onlyDestroysTransportOnce, method)
+  withInstance.test(handlesTransportDestroyPromise, method, pastTense)
+  withInstance.test(handlesTransportDestroyVoid, method, pastTense)
+  withInstance.test(handlesTransportDestroyReject, method)
+  withInstance.test(handlesTransportDestroyThrow, method)
+  withInstance.test('if there was no transport to destroy', returnsFulfilledPromiseIfNotJoined, method)
+  withInstance.test(`if the raft implementation failed to ${method}`, propagatesRejectedPromise, method)
+}
 
-      context('the server was destroyed', () => {
-        it(`rejects the returned promise with the ${type} failure`, async ctx => {
-          // The handling of the listening failure is asynchronous, meaning
-          // the server can be closed between the error occurring and it
-          // being handled. Set that up here.
-          schedulePromiseCallback(() => ctx.server.destroy())
-          assert(await getReason(ctx.server.join()) === getError(ctx))
-        })
-      })
-    }
+withInstance.test('close() returns the same promise if called multiple times', t => {
+  const { server } = t.context
+  t.true(server.close() === server.close())
+})
 
-    context('listening fails', () => {
-      ;[
-        { desc: 'listen() threw an error', setup (listen, err) { listen.throws(err) } },
-        { desc: 'listen() returned a rejected promise', setup (listen, err) { listen.returns(Promise.reject(err)) } }
-      ].forEach(({ desc, setup }) => {
-        context(desc, () => {
-          beforeEach(ctx => {
-            // Get a valid transport stub, then change createTransport() to
-            // always return that stub.
-            ctx.transport = ctx.createTransport()
-            ctx.createTransportProxy.createTransport = stub().returns(ctx.transport)
+withInstance.test('close(), if called after destroy(), returns the promise that was last returned by destroy()', t => {
+  const { server } = t.context
+  t.true(server.destroy() === server.close())
+})
 
-            ctx.listeningFailure = Symbol()
-            setup(ctx.transport.listen, ctx.listeningFailure)
-          })
+withInstance.test('destroy() returns a different promise if called multiple times', t => {
+  const { server } = t.context
+  t.true(server.destroy() !== server.destroy())
+})
 
-          testJoinFailureHandling('listening', ctx => ctx.listeningFailure)
-        })
-      })
-    })
+withInstance.test('destroy(), if called after close(), returns a different promise than was last returned by close()', t => {
+  const { server } = t.context
+  t.true(server.close() !== server.destroy())
+})
 
-    context('listening succeeds', () => {
-      ;[
-        { desc: 'listen() returned a promise fulfilled with the nonPeerStream', setup (listen, nonPeerStream) { listen.returns(Promise.resolve(nonPeerStream)) } },
-        { desc: 'listen() returned the nonPeerStream directly', setup (listen, nonPeerStream) { listen.returns(nonPeerStream) } }
-      ].forEach(({ desc, setup }) => {
-        context(desc, () => {
-          beforeEach(ctx => {
-            // Get a valid transport stub, then change createTransport() to
-            // always return that stub.
-            ctx.transport = ctx.createTransport()
-            ctx.createTransportProxy.createTransport = stub().returns(ctx.transport)
+withInstance.test('join() creates Address instances if necessary', async t => {
+  const { raft, server } = t.context
+  await server.join(['///first', '///second'])
 
-            ctx.nonPeerStream = Symbol()
-            setup(ctx.transport.listen, ctx.nonPeerStream)
-          })
+  const { args: [{ addresses }] } = raft.joinInitialCluster.firstCall
+  t.true(addresses.length === 2)
+  t.true(addresses[0].serverId === 'first')
+  t.true(addresses[1].serverId === 'second')
+})
 
-          it('joins the cluster', async ctx => {
-            await ctx.server.join()
+withInstance.test('join() returns a rejected promise if an invalid address is encountered', async t => {
+  const { server } = t.context
+  await t.throws(server.join(['invalid']), TypeError)
+})
 
-            assert(ctx.raft.joinInitialCluster.calledOnce)
-            const { args: [{ addresses, connect, nonPeerStream }] } = ctx.raft.joinInitialCluster.firstCall
-            assert(Array.isArray(addresses))
-            assert(typeof connect === 'function')
-            assert(nonPeerStream === ctx.nonPeerStream)
-          })
+withInstance.test('join() uses provided Address instances as-is', async t => {
+  const { raft, server } = t.context
+  const address = new Address('///foo')
+  await server.join([address])
 
-          context('joining succeeds', () => {
-            it('fulfills the promise returned by join()', async ctx => {
-              assert(await ctx.server.join() === undefined)
-            })
-          })
+  const { args: [{ addresses }] } = raft.joinInitialCluster.firstCall
+  t.true(addresses.length === 1)
+  t.true(addresses[0] === address)
+})
 
-          context('joining fails', () => {
-            beforeEach(ctx => {
-              ctx.joiningFailure = Symbol()
-              ctx.raft.joinInitialCluster.returns(Promise.reject(ctx.joiningFailure))
-            })
+withInstance.test('join() joins an empty cluster if no addresses were provided', async t => {
+  const { raft, server } = t.context
+  await server.join()
 
-            testJoinFailureHandling('joining', ctx => ctx.joiningFailure)
-          })
-        })
-      })
+  const { args: [{ addresses }] } = raft.joinInitialCluster.firstCall
+  t.true(addresses.length === 0)
+})
 
-      describe('the connect() method passed to Raft#joinInitialCluster()', () => {
-        beforeEach(async ctx => {
-          // Get a valid transport stub, then change createTransport() to
-          // always return that stub.
-          ctx.transport = ctx.createTransport()
-          ctx.createTransportProxy.createTransport = stub().returns(ctx.transport)
+withInstance.test('join() returns a rejected promise if the server already joined a cluster', async t => {
+  const { server } = t.context
+  server.join()
+  await t.throws(server.join(), Error, 'Joining a cluster is no longer allowed')
+})
 
-          await ctx.server.join()
-          const { args: [{ connect }] } = ctx.raft.joinInitialCluster.firstCall
-          ctx.connect = connect
-        })
+withInstance.test('join() returns a rejected promise if the server was already closed', async t => {
+  const { server } = t.context
+  server.close()
+  await t.throws(server.join(), Error, 'Server is closed')
+})
 
-        it('calls the transport’s connect() with the given options', ctx => {
-          const opts = Symbol()
-          ctx.connect(opts)
-          assert(ctx.transport.connect.calledOnce)
-          const { args: [receivedOpts] } = ctx.transport.connect.firstCall
-          assert(receivedOpts === opts)
-        })
+withInstance.test('join() returns a rejected promise if the server was already destroyed', async t => {
+  const { server } = t.context
+  server.destroy()
+  await t.throws(server.join(), Error, 'Server is closed')
+})
 
-        context('the transport’s connect() returns a promise', () => {
-          context('the promise is fulfilled', () => {
-            it('fulfills the promise returned by the connect() method passed to Raft#joinInitialCluster()', async ctx => {
-              const result = Symbol()
-              ctx.transport.connect.returns(Promise.resolve(result))
-              assert(await ctx.connect() === result)
-            })
-          })
+withInstance.test('join() creates the transport', t => {
+  const { address, createTransport, server } = t.context
+  server.join()
+  t.true(createTransport.calledOnce)
+  const { args: [actualAddress] } = createTransport.firstCall
+  t.true(actualAddress === address)
+})
 
-          context('the promise is rejected', () => {
-            it('rejects the promise returned by the connect() method passed to Raft#joinInitialCluster()', async ctx => {
-              const err = Symbol()
-              ctx.transport.connect.returns(Promise.reject(err))
-              assert(await getReason(ctx.connect()) === err)
-            })
-          })
-        })
+withInstance.test('join() calls listen() on the transport after it’s created', t => {
+  const { createTransport, server } = t.context
+  server.join()
+  const { returnValue: transport } = createTransport.firstCall
+  t.true(transport.listen.calledOnce)
+})
 
-        context('the transport’s connect() does not return a promise', () => {
-          it('fulfills the promise returned by the connect() method passed to Raft#joinInitialCluster() with the returned value', async ctx => {
-            const result = Symbol()
-            ctx.transport.connect.returns(result)
-            assert(await ctx.connect() === result)
-          })
-        })
+for (const [condition, setup] of [
+  ['the transport’s listen() throws', ({ transport }, err) => transport.listen.throws(err)],
+  ['the transport’s listen() returns a rejected promise', ({ transport }, err) => transport.listen.returns(Promise.reject(err))],
+  ['joining the cluster fails', ({ raft }, err) => raft.joinInitialCluster.returns(Promise.reject(err))]
+]) {
+  withTransport.test(condition, destroysTransportAfterListenFailure, setup)
+  withTransport.test(condition, rejectsJoinPromiseWithListenFailure, setup)
+  withTransport.test(condition, rejectsJoinPromiseWithListenFailureEvenIfTransportDestroyReject, setup)
+  withTransport.test(condition, rejectsJoinPromiseWithListenFailureEvenIfTransportDestroyThrow, setup)
+  withTransport.test(condition, rejectsJoinPromiseWithListenFailureEvenIfServerClosed, setup)
+  withTransport.test(condition, rejectsJoinPromiseWithListenFailureEvenIfServerDestroyed, setup)
+}
 
-        context('the transport’s connect() throws an error', () => {
-          it('rejects the promise returned by the connect() method passed to Raft#joinInitialCluster() with the error', async ctx => {
-            const err = Symbol()
-            ctx.transport.connect.throws(err)
-            assert(await getReason(ctx.connect()) === err)
-          })
-        })
-      })
-    })
-  })
+for (const [condition, setup] of [
+  ['the tranport’s listen() returns a promise fulfilled with the nonPeerStream', (listen, nonPeerStream) => listen.returns(Promise.resolve(nonPeerStream))],
+  ['the tranport’s listen() returns the nonPeerStream', (listen, nonPeerStream) => listen.returns(nonPeerStream)]
+]) {
+  withTransport.test(condition, joinsClusterOnceListenSucceeds, setup)
+}
 
-  describe('#append (value)', () => {
-    it('calls append() on the raft implementation', ctx => {
-      const result = Symbol()
-      ctx.raft.append.returns(result)
-      const value = Symbol()
-      assert(ctx.server.append(value) === result)
-      assert(ctx.raft.append.calledOnce)
-      const { args: [appended] } = ctx.raft.append.firstCall
-      assert(appended === value)
-    })
-  })
+withInstance.test('join() returns a fulfilled promise if it successfully joins the cluster', async t => {
+  const { server } = t.context
+  t.true(await server.join() === undefined)
+})
+
+withConnect.test('join() provides a connect() method when joining the cluster, which calls the transport’s connect()', async t => {
+  const { connect, transport } = t.context
+  const opts = Symbol()
+  connect(opts)
+  t.true(transport.connect.calledOnce)
+  const { args: [receivedOpts] } = transport.connect.firstCall
+  t.true(receivedOpts === opts)
+})
+
+withConnect.test('join() provides a connect() method when joining the cluster, which returns a promise that is fulfilled when the transport’s connect() returns a fulfilled promise', async t => {
+  const { connect, transport } = t.context
+  const result = Symbol()
+  transport.connect.returns(Promise.resolve(result))
+  t.true(await connect() === result)
+})
+
+withConnect.test('join() provides a connect() method when joining the cluster, which returns a promise that is fulfilled when the transport’s connect() returns', async t => {
+  const { connect, transport } = t.context
+  const result = Symbol()
+  transport.connect.returns(result)
+  t.true(await connect() === result)
+})
+
+withConnect.test('join() provides a connect() method when joining the cluster, which returns a promise that is rejected when the transport’s connect() returns a rejected promise', async t => {
+  const { connect, transport } = t.context
+  const err = new Error()
+  transport.connect.returns(Promise.reject(err))
+  const actualErr = await t.throws(connect())
+  t.true(actualErr === err)
+})
+
+withConnect.test('join() provides a connect() method when joining the cluster, which returns a promise that is rejected when the transport’s connect() throws', async t => {
+  const { connect, transport } = t.context
+  const err = new Error()
+  transport.connect.throws(err)
+  const actualErr = await t.throws(connect())
+  t.true(actualErr === err)
+})
+
+withInstance.test('append() calls append() on the raft implementation', t => {
+  const { raft, server } = t.context
+  const result = Symbol()
+  raft.append.returns(result)
+  const value = Symbol()
+  t.true(server.append(value) === result)
+  t.true(raft.append.calledOnce)
+  const { args: [appended] } = raft.append.firstCall
+  t.true(appended === value)
 })

@@ -1,78 +1,85 @@
-import { before, beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import proxyquire from 'proxyquire'
 import { stub } from 'sinon'
 
-import { getReason } from './support/utils'
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
 
-describe('NonPeerReceiver', () => {
-  before(ctx => {
-    ctx.MessageBuffer = stub()
-    ctx.Peer = stub()
-    ctx.NonPeerReceiver = proxyquire.noCallThru()('../lib/NonPeerReceiver', {
-      './MessageBuffer': function (...args) { return ctx.MessageBuffer(...args) },
-      './Peer': function (...args) { return ctx.Peer(...args) }
-    })['default']
+const shared = {
+  MessageBuffer () {},
+  Peer () {}
+}
+
+const { default: NonPeerReceiver } = proxyquire.noCallThru()('../lib/NonPeerReceiver', {
+  './MessageBuffer': function (...args) { return shared.MessageBuffer(...args) },
+  './Peer': function (...args) { return shared.Peer(...args) }
+})
+
+test.beforeEach(t => {
+  const connect = stub().returns(new Promise(() => {}))
+  const MessageBuffer = stub()
+  const Peer = stub()
+  const stream = stub({ read () {} })
+
+  // Note that the next tests' beforeEach hook overrides the shared stubs. Tests
+  // where NonPeerReceiver, MessageBuffer or Peer are instantiated
+  // asynchronously need to be marked as serial.
+  Object.assign(shared, { MessageBuffer, Peer })
+
+  Object.assign(t.context, {
+    connect,
+    MessageBuffer,
+    Peer,
+    stream
   })
+})
 
-  beforeEach(ctx => {
-    ctx.MessageBuffer.reset()
-    ctx.Peer.reset()
+test('create a message buffer', t => {
+  const { connect, MessageBuffer, stream } = t.context
+  const messages = {}
+  MessageBuffer.returns(messages)
 
-    ctx.stream = stub({ read () {} })
-    ctx.connect = stub().returns(new Promise(() => {}))
-  })
+  const receiver = new NonPeerReceiver(stream, connect)
+  t.true(MessageBuffer.calledOnce)
+  const { args: [actualStream] } = MessageBuffer.firstCall
+  t.true(actualStream === stream)
+  t.true(receiver.messages === messages)
+})
 
-  describe('constructor (stream, connect)', () => {
-    it('creates a message buffer for the stream', ctx => {
-      const messages = {}
-      ctx.MessageBuffer.returns(messages)
+test('createPeer() connects to the address', t => {
+  const { connect, stream } = t.context
+  const receiver = new NonPeerReceiver(stream, connect)
+  const peerAddress = Symbol()
+  receiver.createPeer(peerAddress)
 
-      const receiver = new ctx.NonPeerReceiver(ctx.stream, ctx.connect)
-      assert(ctx.MessageBuffer.calledOnce)
-      const { args: [stream] } = ctx.MessageBuffer.firstCall
-      assert(stream === ctx.stream)
-      assert(receiver.messages === messages)
-    })
-  })
+  t.true(connect.calledOnce)
+  const { args: [{ address, writeOnly }] } = connect.firstCall
+  t.true(address === peerAddress)
+  t.true(writeOnly === true)
+})
 
-  describe('#createPeer (address)', ctx => {
-    it('connects to the address', ctx => {
-      const receiver = new ctx.NonPeerReceiver(ctx.stream, ctx.connect)
-      const peerAddress = Symbol()
-      receiver.createPeer(peerAddress)
+test.serial('createPeer() returns a promise that is fulfilled with the peer once it’s connected', async t => {
+  const { connect, Peer } = t.context
+  const peerAddress = Symbol()
+  const stream = {}
+  connect.returns(Promise.resolve(stream))
 
-      assert(ctx.connect.calledOnce)
-      const { args: [{ address, writeOnly }] } = ctx.connect.firstCall
-      assert(address === peerAddress)
-      assert(writeOnly === true)
-    })
+  const peer = {}
+  Peer.returns(peer)
 
-    context('connecting succeeds', () => {
-      it('returns a promise fulfilled with the peer', async ctx => {
-        const peerAddress = Symbol()
-        const stream = {}
-        ctx.connect.returns(Promise.resolve(stream))
+  const receiver = new NonPeerReceiver(stream, connect)
+  t.true(await receiver.createPeer(peerAddress) === peer)
+  const { args: [addressForPeer, streamForPeer] } = Peer.lastCall
+  t.true(addressForPeer === peerAddress)
+  t.true(streamForPeer === stream)
+})
 
-        const peer = {}
-        ctx.Peer.returns(peer)
+test('createPeer() returns a promise that is rejected with the connection failure, if any', async t => {
+  const { connect, stream } = t.context
+  const err = Symbol()
+  connect.returns(Promise.reject(err))
 
-        const receiver = new ctx.NonPeerReceiver(ctx.stream, ctx.connect)
-        assert(await receiver.createPeer(peerAddress) === peer)
-        const { args: [addressForPeer, streamForPeer] } = ctx.Peer.lastCall
-        assert(addressForPeer === peerAddress)
-        assert(streamForPeer === stream)
-      })
-    })
-
-    context('connecting fails', () => {
-      it('returns a promise rejected with the failure', async ctx => {
-        const err = Symbol()
-        ctx.connect.returns(Promise.reject(err))
-
-        const receiver = new ctx.NonPeerReceiver(ctx.stream, ctx.connect)
-        assert(await getReason(receiver.createPeer()) === err)
-      })
-    })
-  })
+  const receiver = new NonPeerReceiver(stream, connect)
+  const reason = await t.throws(receiver.createPeer())
+  t.true(reason === err)
 })

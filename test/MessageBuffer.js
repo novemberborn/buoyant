@@ -1,156 +1,122 @@
-import { beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import { stub } from 'sinon'
 
 import MessageBuffer from '../lib/MessageBuffer'
 
-describe('MessageBuffer', () => {
-  beforeEach(ctx => {
-    ctx.stream = stub({
-      read () {},
-      once () {}
-    })
-    ctx.stream.read.returns(null)
-    ctx.buffer = new MessageBuffer(ctx.stream)
+import fork from './helpers/fork-context'
+
+test.beforeEach(t => {
+  const stream = stub({
+    read () {},
+    once () {}
   })
+  stream.read.returns(null)
+  const buffer = new MessageBuffer(stream)
 
-  describe('#take ()', () => {
-    it('reads from the stream', ctx => {
-      const message = Symbol()
-      ctx.stream.read.onCall(0).returns(message)
-
-      assert(ctx.buffer.take() === message)
-      assert(ctx.stream.read.calledOnce)
-    })
-
-    context('a buffered message is available', () => {
-      beforeEach(ctx => {
-        ctx.message = Symbol()
-        ctx.stream.read.onCall(0).returns(ctx.message)
-        ctx.buffer.canTake()
-        assert(ctx.stream.read.calledOnce)
-      })
-
-      it('returns that message', ctx => {
-        assert(ctx.buffer.take() === ctx.message)
-        assert(ctx.stream.read.calledOnce)
-      })
-
-      context('taking another message immediately after', () => {
-        it('reads from the stream', ctx => {
-          const another = Symbol()
-          ctx.stream.read.onCall(1).returns(another)
-          ctx.buffer.take()
-
-          assert(ctx.buffer.take() === another)
-          assert(ctx.stream.read.calledTwice)
-        })
-      })
-    })
+  Object.assign(t.context, {
+    buffer,
+    stream
   })
+})
 
-  describe('#canTake ()', () => {
-    context('there is no buffered message', () => {
-      it('reads from the stream', ctx => {
-        ctx.stream.read.onCall(0).returns(Symbol())
+const streamHasMessage = fork().beforeEach(t => {
+  const { stream } = t.context
+  const message = Symbol()
+  stream.read.onCall(0).returns(message)
+  Object.assign(t.context, { message })
+})
 
-        ctx.buffer.canTake()
-        assert(ctx.stream.read.calledOnce)
-      })
+const hasBufferedMessage = streamHasMessage.fork().beforeEach(t => {
+  const { buffer, stream } = t.context
+  buffer.canTake()
+  t.true(stream.read.calledOnce)
+})
 
-      context('a message was read', () => {
-        it('returns true', ctx => {
-          ctx.stream.read.onCall(0).returns(Symbol())
-          assert(ctx.buffer.canTake() === true)
-        })
-      })
+test('take() reads from the stream', t => {
+  const { buffer, stream } = t.context
+  const message = Symbol()
+  stream.read.onCall(0).returns(message)
 
-      context('no message was read', () => {
-        it('returns false', ctx => {
-          assert(ctx.buffer.canTake() === false)
-        })
-      })
-    })
+  t.true(buffer.take() === message)
+  t.true(stream.read.calledOnce)
+})
 
-    it('returns whether there is a buffered message', ctx => {
-      ctx.stream.read.onCall(0).returns(Symbol())
-      ctx.buffer.canTake()
+hasBufferedMessage.test('take() returns a buffered message', t => {
+  const { buffer, message } = t.context
+  t.true(buffer.take() === message)
+})
 
-      assert(ctx.buffer.canTake() === true)
-    })
-  })
+hasBufferedMessage.test('take() reads from the stream after the buffered message is taken', t => {
+  const { buffer, message, stream } = t.context
+  const another = Symbol()
+  stream.read.onCall(1).returns(another)
 
-  describe('#await ()', () => {
-    context('there is no buffered message', () => {
-      it('reads from the stream', ctx => {
-        ctx.stream.read.onCall(0).returns(Symbol())
+  t.true(buffer.take() === message)
+  t.true(buffer.take() === another)
+  t.true(stream.read.calledTwice)
+})
 
-        ctx.buffer.await()
-        assert(ctx.stream.read.calledOnce)
-      })
+test('canTake() reads from the stream if there is no buffered message', t => {
+  const { buffer, stream } = t.context
+  stream.read.onCall(0).returns(Symbol())
+  buffer.canTake()
+  t.true(stream.read.calledOnce)
+})
 
-      context('a message was read', () => {
-        beforeEach(ctx => ctx.stream.read.onCall(0).returns(Symbol()))
+test('canTake() returns true if a message was read', t => {
+  const { buffer, stream } = t.context
+  stream.read.onCall(0).returns(Symbol())
+  t.true(buffer.canTake())
+})
 
-        it('returns a fulfilled promise', async ctx => {
-          assert(await ctx.buffer.await() === undefined)
-        })
+test('canTake() returns false if a message was read', t => {
+  const { buffer } = t.context
+  t.false(buffer.canTake())
+})
 
-        context('called repeatedly', () => {
-          context('before fulfillment could be observed', () => {
-            it('returns the same promise', ctx => {
-              assert(ctx.buffer.await() === ctx.buffer.await())
-            })
-          })
+hasBufferedMessage.test('canTake() returns true if there is a buffered message', t => {
+  const { buffer } = t.context
+  t.true(buffer.canTake())
+})
 
-          context('after fulfillment could be observed', () => {
-            it('returns a different promise', async ctx => {
-              const p = ctx.buffer.await()
-              await p
-              assert(ctx.buffer.await() !== p)
-            })
-          })
-        })
-      })
+test('await() reads from the stream if there is no buffered message', t => {
+  const { buffer, stream } = t.context
+  stream.read.onCall(0).returns(Symbol())
+  buffer.await()
+  t.true(stream.read.calledOnce)
+})
 
-      context('no message was read', () => {
-        it('listens for the readable event', ctx => {
-          ctx.buffer.await()
-          assert(ctx.stream.once.calledOnce)
-          const { args: [event, listener] } = ctx.stream.once.firstCall
-          assert(event === 'readable')
-          assert(typeof listener === 'function')
-        })
+streamHasMessage.test('await() returns a fulfilled promise if it reads a message from the stream', async t => {
+  const { buffer } = t.context
+  t.true(await buffer.await() === undefined)
+})
 
-        context('the readable event fires', () => {
-          it('fulfills the returned promise', async ctx => {
-            const p = ctx.buffer.await()
-            const { args: [, fire] } = ctx.stream.once.firstCall
+streamHasMessage.test('await() returns the same promise if called multiple times in the same turn', t => {
+  const { buffer } = t.context
+  t.true(buffer.await() === buffer.await())
+})
 
-            fire()
-            assert(await p === undefined)
-          })
-        })
+streamHasMessage.test('await() returns different promises if called in different turns', async t => {
+  const { buffer } = t.context
+  const promise = buffer.await()
+  await promise
+  t.true(promise !== buffer.await())
+})
 
-        context('called repeatedly', () => {
-          context('before the returned promise is fulfilled', () => {
-            it('returns the same promise', ctx => {
-              assert(ctx.buffer.await() === ctx.buffer.await())
-            })
-          })
+test('await() listens for the readable event if it did not read a message from the stream', t => {
+  const { buffer, stream } = t.context
+  buffer.await()
+  t.true(stream.once.calledOnce)
+  const { args: [event, listener] } = stream.once.firstCall
+  t.true(event === 'readable')
+  t.true(typeof listener === 'function')
+})
 
-          context('after the returned promise is fulfilled', () => {
-            it('returns a different promise', async ctx => {
-              const p = ctx.buffer.await()
-              const { args: [, fire] } = ctx.stream.once.firstCall
+test('await() returns a promise that is fulfilled when the stream emits the readable event', async t => {
+  const { buffer, stream } = t.context
+  const promise = buffer.await()
+  const { args: [, fire] } = stream.once.firstCall
 
-              fire()
-              await p
-              assert(ctx.buffer.await() !== p)
-            })
-          })
-        })
-      })
-    })
-  })
+  fire()
+  t.true(await promise === undefined)
 })

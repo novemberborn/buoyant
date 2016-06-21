@@ -1,65 +1,53 @@
-import { after, before, beforeEach, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import { install as installClock } from 'lolex'
 import { spy } from 'sinon'
-
 import Timers from '../lib/Timers'
 
-describe('Timers', () => {
-  before(ctx => {
-    ctx.clock = installClock(0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
-  })
-  after(ctx => ctx.clock.uninstall())
+const clock = installClock(0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
 
-  beforeEach(ctx => {
-    ctx.timers = new Timers()
-    ctx.spy = spy()
-  })
+function setup () {
+  return [new Timers(), spy()]
+}
 
-  describe('#clearInterval (intervalObject)', () => {
-    it('clears the interval', ctx => {
-      const obj = ctx.timers.setInterval(ctx.spy, 100)
-      ctx.timers.clearInterval(obj)
+test('clearInterval (intervalObject)', t => {
+  const [timers, spy] = setup()
+  const obj = timers.setInterval(spy, 100)
+  timers.clearInterval(obj)
+  clock.tick(100)
 
-      ctx.clock.tick(100)
-      assert(ctx.spy.notCalled)
-    })
-  })
+  t.true(spy.notCalled)
+})
 
-  describe('#setInterval (callback, delay, ...args)', () => {
-    it('sets the interval', ctx => {
-      const args = [Symbol(), Symbol()]
-      ctx.timers.setInterval(ctx.spy, 100, ...args)
+test('setInterval (callback, delay, ...args)', t => {
+  const [timers, spy] = setup()
+  const args = [Symbol(), Symbol()]
+  timers.setInterval(spy, 100, ...args)
+  clock.tick(100)
+  clock.tick(100)
 
-      ctx.clock.tick(100)
-      ctx.clock.tick(100)
-      assert(ctx.spy.calledTwice)
-      const { args: [firstArgs, secondArgs] } = ctx.spy
-      assert.deepStrictEqual(firstArgs, args)
-      assert.deepStrictEqual(secondArgs, args)
-    })
-  })
+  t.true(spy.calledTwice)
+  const { args: [firstArgs, secondArgs] } = spy
+  t.deepEqual(firstArgs, args)
+  t.deepEqual(secondArgs, args)
+})
 
-  describe('#clearTimeout (timeoutObject)', () => {
-    it('clears the timeout', ctx => {
-      const obj = ctx.timers.setTimeout(ctx.spy, 100)
-      ctx.timers.clearTimeout(obj)
+test('clearTimeout (timeoutObject)', t => {
+  const [timers, spy] = setup()
+  const obj = timers.setTimeout(spy, 100)
+  timers.clearTimeout(obj)
+  clock.tick(100)
 
-      ctx.clock.tick(100)
-      assert(ctx.spy.notCalled)
-    })
-  })
+  t.true(spy.notCalled)
+})
 
-  describe('#setTimeout (callback, delay, ...args)', () => {
-    it('sets the timeout', ctx => {
-      const args = [Symbol(), Symbol()]
-      ctx.timers.setTimeout(ctx.spy, 100, ...args)
+test('setTimeout (callback, delay, ...args)', t => {
+  const [timers, spy] = setup()
+  const args = [Symbol(), Symbol()]
+  timers.setTimeout(spy, 100, ...args)
+  clock.tick(100)
+  clock.tick(100)
 
-      ctx.clock.tick(100)
-      ctx.clock.tick(100)
-      assert(ctx.spy.calledOnce)
-      const { args: [firstArgs] } = ctx.spy
-      assert.deepStrictEqual(firstArgs, args)
-    })
-  })
+  t.true(spy.calledOnce)
+  const { args: [firstArgs] } = spy
+  t.deepEqual(firstArgs, args)
 })

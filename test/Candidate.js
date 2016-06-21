@@ -1,7 +1,6 @@
 import { resolve } from 'path'
 
-import { afterEach, beforeEach, context, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import { spy, stub } from 'sinon'
 
 import {
@@ -9,274 +8,278 @@ import {
   RequestVote, DenyVote, GrantVote
 } from '../lib/symbols'
 
+import fork from './helpers/fork-context'
 import {
   setupConstructors,
   testFollowerConversion,
   testInputConsumerDestruction, testInputConsumerInstantiation, testInputConsumerStart,
   testMessageHandlerMapping,
   testSchedulerDestruction, testSchedulerInstantiation
-} from './support/role-tests'
-import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './support/stub-helpers'
+} from './helpers/role-tests'
+import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './helpers/stub-helpers'
 
-describe('roles/Candidate', () => {
-  setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
+// Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
+const { Promise } = global
 
-  beforeEach(ctx => {
-    const becomeLeader = ctx.becomeLeader = stub()
-    const convertToFollower = ctx.convertToFollower = stub()
-    const crashHandler = ctx.crashHandler = stub()
-    const electionTimeout = ctx.electionTimeout = 10
-    const log = ctx.log = stubLog()
-    const nonPeerReceiver = ctx.nonPeerReceiver = stub({ messages: stubMessages() })
-    const ourId = ctx.ourId = Symbol()
-    const peers = ctx.peers = [ctx.peer = stubPeer(), stubPeer(), stubPeer()]
-    const state = ctx.state = stubState()
+const Candidate = setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
 
-    const { clock, timers } = stubTimers()
-    ctx.clock = clock
+test.beforeEach(t => {
+  const becomeLeader = stub()
+  const convertToFollower = stub()
+  const crashHandler = stub()
+  const electionTimeout = 10
+  const log = stubLog()
+  const nonPeerReceiver = stub({ messages: stubMessages() })
+  const ourId = Symbol()
+  const peers = [stubPeer(), stubPeer(), stubPeer()]
+  const state = stubState()
+  const { clock, timers } = stubTimers()
 
-    ctx.candidate = new ctx.Candidate({ becomeLeader, convertToFollower, crashHandler, electionTimeout, log, nonPeerReceiver, ourId, peers, state, timers })
+  state._currentTerm.returns(1)
+
+  const candidate = new Candidate({
+    becomeLeader,
+    convertToFollower,
+    crashHandler,
+    electionTimeout,
+    log,
+    nonPeerReceiver,
+    ourId,
+    peers,
+    state,
+    timers
   })
 
-  afterEach(ctx => !ctx.candidate.destroyed && ctx.candidate.destroy())
-
-  describe('constructor ({ ourId, electionTimeout, state, log, peers, nonPeerReceiver, crashHandler, convertToFollower, becomeLeader })', () => {
-    testInputConsumerInstantiation('candidate', ctx => ctx.candidate, ctx => ctx.crashHandler)
-    testSchedulerInstantiation(ctx => ctx.candidate, ctx => ctx.crashHandler)
+  Object.assign(t.context, {
+    becomeLeader,
+    candidate,
+    clock,
+    convertToFollower,
+    crashHandler,
+    electionTimeout,
+    log,
+    nonPeerReceiver,
+    ourId,
+    peers,
+    state
   })
+})
 
-  describe('#start ()', () => {
-    it('requests a vote', ctx => {
-      spy(ctx.candidate, 'requestVote')
-      ctx.candidate.start()
-      assert(ctx.candidate.requestVote.calledOnce)
-    })
+test.afterEach(t => {
+  const { candidate } = t.context
+  if (!candidate.destroyed) candidate.destroy()
+})
 
-    testInputConsumerStart(ctx => ctx.candidate)
-  })
+const afterVoteRequest = fork().beforeEach(async t => {
+  const { candidate, peers, state } = t.context
+  candidate.requestVote()
+  state._currentTerm.returns(2) // expect a vote for the second term
+  await Promise.resolve()
 
-  describe('#destroy ()', () => {
-    it('clears the election timer', async ctx => {
-      spy(ctx.candidate, 'requestVote') // spy on the method called by the timer
+  // There are three peers, so need to receive a vote from two. Seed one
+  // vote to make the tests easier.
+  candidate.handleGrantVote(peers[1], 2)
+})
 
-      ctx.candidate.start()
-      assert(ctx.candidate.requestVote.calledOnce) // should be called after starting
-      await Promise.resolve() // wait for the timer to be started
+const afterSecondVoteRequest = afterVoteRequest.fork().beforeEach(async t => {
+  const { candidate } = t.context
+  candidate.requestVote()
+  await Promise.resolve()
+})
 
-      ctx.candidate.destroy() // should prevent the timer from triggering
-      ctx.clock.tick(ctx.electionTimeout) // timer should fire now, if not cleared
-      assert(ctx.candidate.requestVote.calledOnce) // should not be called again
-    })
+testInputConsumerInstantiation('candidate')
+testSchedulerInstantiation('candidate')
 
-    testInputConsumerDestruction(ctx => ctx.candidate)
-    testSchedulerDestruction(ctx => ctx.candidate)
-  })
+test('start() requests a vote', t => {
+  const { candidate } = t.context
+  spy(candidate, 'requestVote')
+  candidate.start()
+  t.true(candidate.requestVote.calledOnce)
+})
 
-  describe('#requestVote ()', () => {
-    it('is gated by the scheduler', ctx => {
-      // Only checks whether the scheduler is used. Not a perfect test since it
-      // doesn't confirm that the operation is actually gated by the scheduler.
-      spy(ctx.candidate.scheduler, 'asap')
-      ctx.candidate.requestVote()
-      assert(ctx.candidate.scheduler.asap.calledOnce)
-    })
+testInputConsumerStart('candidate')
 
-    it('advances the term, voting for itself', ctx => {
-      ctx.candidate.requestVote()
-      assert(ctx.state.nextTerm.calledOnce)
-      const { args: [id] } = ctx.state.nextTerm.firstCall
-      assert(id === ctx.ourId)
-    })
+test('destroy() clears the election timer', async t => {
+  const { candidate, clock, electionTimeout } = t.context
+  spy(candidate, 'requestVote') // spy on the method called by the timer
 
-    context('the candidate was destroyed while persisting the state', () => {
-      it('does not send RequestVote messages', async ctx => {
-        let persisted
-        ctx.state.nextTerm.returns(new Promise(resolve => {
-          persisted = resolve
-        }))
+  candidate.start()
+  t.true(candidate.requestVote.calledOnce) // should be called after starting
+  await Promise.resolve() // wait for the timer to be started
 
-        ctx.candidate.requestVote()
-        ctx.candidate.destroy()
-        persisted()
+  candidate.destroy() // should prevent the timer from triggering
+  clock.tick(electionTimeout) // timer should fire now, if not cleared
+  t.true(candidate.requestVote.calledOnce) // should not be called again
+})
 
-        await Promise.resolve()
-        assert(ctx.peer.send.notCalled)
-      })
+testInputConsumerDestruction('candidate')
+testSchedulerDestruction('candidate')
 
-      it('does not set the election timer', async ctx => {
-        let persisted
-        ctx.state.nextTerm.returns(new Promise(resolve => {
-          persisted = resolve
-        }))
+test('requestVote() is gated by the scheduler', t => {
+  const { candidate } = t.context
+  // Only checks whether the scheduler is used. Not a perfect test since it
+  // doesn't confirm that the operation is actually gated by the scheduler.
+  spy(candidate.scheduler, 'asap')
+  candidate.requestVote()
+  t.true(candidate.scheduler.asap.calledOnce)
+})
 
-        ctx.candidate.requestVote()
-        ctx.candidate.destroy()
-        persisted()
+test('requestVote() advances the term, voting for itself', t => {
+  const { candidate, ourId, state } = t.context
+  candidate.requestVote()
+  t.true(state.nextTerm.calledOnce)
+  const { args: [id] } = state.nextTerm.firstCall
+  t.true(id === ourId)
+})
 
-        await Promise.resolve()
-        spy(ctx.candidate, 'requestVote')
-        ctx.clock.tick(ctx.electionTimeout)
-        assert(ctx.candidate.requestVote.notCalled)
-      })
-    })
+test('requestVote() does not send RequestVote messages if the candidate was destroyed while persisting the state', async t => {
+  const { candidate, state, peers: [peer] } = t.context
+  let persisted
+  state.nextTerm.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-    context('the candidate was not destroyed while persisting the state', () => {
-      it('sends a RequestVote message to each peer', async ctx => {
-        const term = Symbol()
-        ctx.state._currentTerm.returns(term)
-        const [lastLogIndex, lastLogTerm] = [Symbol(), Symbol()]
-        ctx.log._lastIndex.returns(lastLogIndex)
-        ctx.log._lastTerm.returns(lastLogTerm)
+  candidate.requestVote()
+  candidate.destroy()
+  persisted()
 
-        ctx.candidate.requestVote()
-        await Promise.resolve()
+  await Promise.resolve()
+  t.true(peer.send.notCalled)
+})
 
-        for (const { send } of ctx.peers) {
-          const { args: [message] } = send.firstCall
-          assert.deepStrictEqual(message, { type: RequestVote, term, lastLogIndex, lastLogTerm })
-        }
-      })
+test('requestVote() does not set the election timer if the candidate was destroyed while persisting the state', async t => {
+  const { candidate, clock, electionTimeout, state } = t.context
+  let persisted
+  state.nextTerm.returns(new Promise(resolve => {
+    persisted = resolve
+  }))
 
-      context('the election times out', () => {
-        it('requests another vote', async ctx => {
-          ctx.candidate.requestVote()
-          await Promise.resolve()
+  candidate.requestVote()
+  candidate.destroy()
+  persisted()
 
-          spy(ctx.candidate, 'requestVote')
-          ctx.clock.tick(ctx.electionTimeout)
-          assert(ctx.candidate.requestVote.calledOnce)
-        })
-      })
-    })
-  })
+  await Promise.resolve()
+  spy(candidate, 'requestVote')
+  clock.tick(electionTimeout)
+  t.true(candidate.requestVote.notCalled)
+})
 
-  describe('#handleMessage (peer, message)', () => {
-    testFollowerConversion('candidate', ctx => ctx.candidate)
+test('requestVote() sends a RequestVote message to each peer', async t => {
+  const { candidate, log, peers, state } = t.context
+  const term = Symbol()
+  state._currentTerm.returns(term)
+  const [lastLogIndex, lastLogTerm] = [Symbol(), Symbol()]
+  log._lastIndex.returns(lastLogIndex)
+  log._lastTerm.returns(lastLogTerm)
 
-    testMessageHandlerMapping(ctx => [ctx.candidate, ctx.peer], [
-      { type: RequestVote, label: 'RequestVote', method: 'handleRequestVote' },
-      { type: GrantVote, label: 'GrantVote', method: 'handleGrantVote' },
-      { type: AppendEntries, label: 'AppendEntries', method: 'handleAppendEntries' }
-    ])
-  })
+  candidate.requestVote()
+  await Promise.resolve()
 
-  describe('#handleRequestVote (peer, term)', () => {
-    context('the term is older', () => {
-      it('sends a DenyVote message to the peer', ctx => {
-        ctx.state._currentTerm.returns(2)
-        ctx.candidate.handleRequestVote(ctx.peer, 1)
+  for (const { send } of peers) {
+    const { args: [message] } = send.firstCall
+    t.deepEqual(message, { type: RequestVote, term, lastLogIndex, lastLogTerm })
+  }
+})
 
-        assert(ctx.peer.send.calledOnce)
-        const { args: [denied] } = ctx.peer.send.firstCall
-        assert.deepStrictEqual(denied, { type: DenyVote, term: 2 })
-      })
-    })
+test('requestVote() requests another vote if the election times out', async t => {
+  const { candidate, clock, electionTimeout } = t.context
+  candidate.requestVote()
+  await Promise.resolve()
 
-    context('the term is the same', () => {
-      it('ignores the request', ctx => {
-        ctx.state._currentTerm.returns(2)
-        ctx.candidate.handleRequestVote(ctx.peer, 2)
+  spy(candidate, 'requestVote')
+  clock.tick(electionTimeout)
+  t.true(candidate.requestVote.calledOnce)
+})
 
-        assert(ctx.peer.send.notCalled)
-      })
-    })
-  })
+testFollowerConversion('candidate')
 
-  describe('#handleGrantVote (peer, term)', () => {
-    beforeEach(async ctx => {
-      ctx.candidate.requestVote()
-      ctx.state._currentTerm.returns(2) // expect a vote for the second term
-      await Promise.resolve()
+testMessageHandlerMapping('candidate', [
+  { type: RequestVote, label: 'RequestVote', method: 'handleRequestVote' },
+  { type: GrantVote, label: 'GrantVote', method: 'handleGrantVote' },
+  { type: AppendEntries, label: 'AppendEntries', method: 'handleAppendEntries' }
+])
 
-      // There are three peers, so need to receive a vote from two. Seed one
-      // vote to make the tests easier.
-      ctx.candidate.handleGrantVote(ctx.peers[1], 2)
-    })
+test('handleRequestVote() sends a DenyVote message to the peer if it sent an older term', t => {
+  const { candidate, peers: [peer], state } = t.context
+  state._currentTerm.returns(2)
+  candidate.handleRequestVote(peer, 1)
 
-    context('the term is not the current term', () => {
-      it('does not count the vote', ctx => {
-        ctx.candidate.handleGrantVote(ctx.peer, 1) // outdated term
-        assert(ctx.becomeLeader.notCalled)
+  t.true(peer.send.calledOnce)
+  const { args: [denied] } = peer.send.firstCall
+  t.deepEqual(denied, { type: DenyVote, term: 2 })
+})
 
-        // The next proper vote should be counted, a majority reached, and the
-        // candidate becomes leader.
-        ctx.candidate.handleGrantVote(ctx.peer, 2)
-        assert(ctx.becomeLeader.calledOnce)
-      })
-    })
+test('handleRequestVote() ignores the request if the peer’s term is the same as the current term', t => {
+  const { candidate, peers: [peer], state } = t.context
+  state._currentTerm.returns(2)
+  candidate.handleRequestVote(peer, 2)
 
-    context('a vote was already received from the peer', () => {
-      it('does not count the vote', ctx => {
-        ctx.candidate.handleGrantVote(ctx.peers[1], 2) // already voted
-        assert(ctx.becomeLeader.notCalled)
+  t.true(peer.send.notCalled)
+})
 
-        // The next proper vote should be counted, a majority reached, and the
-        // candidate becomes leader.
-        ctx.candidate.handleGrantVote(ctx.peer, 2)
-        assert(ctx.becomeLeader.calledOnce)
-      })
-    })
+afterVoteRequest.test('handleGrantVote() disregards votes whose term is not the current one', t => {
+  const { becomeLeader, candidate, peers } = t.context
+  candidate.handleGrantVote(peers[0], 1) // outdated term
+  t.true(becomeLeader.notCalled)
 
-    context('at least half of the peers have voted for the candidate', () => {
-      it('becomes leader', ctx => {
-        ctx.candidate.handleGrantVote(ctx.peer, 2)
-        assert(ctx.becomeLeader.calledOnce)
-      })
-    })
+  // The next proper vote should be counted, a majority reached, and the
+  // candidate becomes leader.
+  candidate.handleGrantVote(peers[0], 2)
+  t.true(becomeLeader.calledOnce)
+})
 
-    // This test whether state is reset when a new election is started. That's
-    // part of requestVote() but without looking into the class only really
-    // testable here.
-    context('after a vote was received, a new election is started', () => {
-      beforeEach(async ctx => {
-        // Remember there's a beforeEach in the parent context which started
-        // the previous election.
-        ctx.candidate.requestVote()
-        await Promise.resolve()
-      })
+afterVoteRequest.test('handleGrantVote() disregards repeated votes in the same election', t => {
+  const { becomeLeader, candidate, peers } = t.context
+  candidate.handleGrantVote(peers[1], 2) // already voted
+  t.true(becomeLeader.notCalled)
 
-      it('again requires votes from at least half the peers', ctx => {
-        ctx.candidate.handleGrantVote(ctx.peer, 2)
-        assert(ctx.becomeLeader.notCalled)
-        ctx.candidate.handleGrantVote(ctx.peers[2], 2)
-        assert(ctx.becomeLeader.calledOnce)
-      })
+  // The next proper vote should be counted, a majority reached, and the
+  // candidate becomes leader.
+  candidate.handleGrantVote(peers[0], 2)
+  t.true(becomeLeader.calledOnce)
+})
 
-      describe('a peer that voted in a previous election', () => {
-        it('can vote again', ctx => {
-          ctx.candidate.handleGrantVote(ctx.peer, 2)
-          assert(ctx.becomeLeader.notCalled)
-          // peers[1] voted in the previous election.
-          ctx.candidate.handleGrantVote(ctx.peers[1], 2)
-          assert(ctx.becomeLeader.calledOnce)
-        })
-      })
-    })
-  })
+afterVoteRequest.test('handleGrantVote() causes the candidate to become leader after receiving votes from at least half of the peers', t => {
+  const { becomeLeader, candidate, peers } = t.context
+  candidate.handleGrantVote(peers[0], 2)
+  t.true(becomeLeader.calledOnce)
+})
 
-  describe('#handleAppendEntries (peer, term, message)', () => {
-    context('the term is the current term', () => {
-      it('converts to follower', ctx => {
-        ctx.state._currentTerm.returns(1)
-        const message = {}
-        ctx.candidate.handleAppendEntries(ctx.peer, 1, message)
+afterSecondVoteRequest.test('handleGrantVote() requires votes from at least half the peers in every election', t => {
+  const { becomeLeader, candidate, peers } = t.context
+  candidate.handleGrantVote(peers[0], 2)
+  t.true(becomeLeader.notCalled)
+  candidate.handleGrantVote(peers[2], 2)
+  t.true(becomeLeader.calledOnce)
+})
 
-        assert(ctx.convertToFollower.calledOnce)
-        const { args: [replayMessage] } = ctx.convertToFollower.firstCall
-        assert(replayMessage[0] === ctx.peer)
-        assert(replayMessage[1] === message)
-      })
-    })
+afterSecondVoteRequest.test('handleGrantVote() accepts votes from peers that voted in previous elections', t => {
+  const { becomeLeader, candidate, peers } = t.context
+  candidate.handleGrantVote(peers[0], 2)
+  t.true(becomeLeader.notCalled)
+  // peers[1] voted in the previous election.
+  candidate.handleGrantVote(peers[1], 2)
+  t.true(becomeLeader.calledOnce)
+})
 
-    context('the term is older', () => {
-      it('rejects the entries', ctx => {
-        ctx.state._currentTerm.returns(2)
-        ctx.candidate.handleAppendEntries(ctx.peer, 1, {})
+test('handleAppendEntries() causes the candidate to convert to follower if the term is the same as the current term', t => {
+  const { candidate, convertToFollower, peers: [peer], state } = t.context
+  state._currentTerm.returns(1)
+  const message = {}
+  candidate.handleAppendEntries(peer, 1, message)
 
-        assert(ctx.peer.send.calledOnce)
-        const { args: [rejected] } = ctx.peer.send.firstCall
-        assert.deepStrictEqual(rejected, { type: RejectEntries, term: 2 })
-      })
-    })
-  })
+  t.true(convertToFollower.calledOnce)
+  const { args: [replayMessage] } = convertToFollower.firstCall
+  t.true(replayMessage[0] === peer)
+  t.true(replayMessage[1] === message)
+})
+
+test('handleAppendEntries() rejects the entries if the term is older than the current one', t => {
+  const { candidate, peers: [peer], state } = t.context
+  state._currentTerm.returns(2)
+  candidate.handleAppendEntries(peer, 1, {})
+
+  t.true(peer.send.calledOnce)
+  const { args: [rejected] } = peer.send.firstCall
+  t.deepEqual(rejected, { type: RejectEntries, term: 2 })
 })

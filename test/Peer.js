@@ -1,54 +1,58 @@
-import { before, beforeEach, describe, it } from '!mocha'
-import assert from 'power-assert'
+import test from 'ava'
 import proxyquire from 'proxyquire'
 import { stub } from 'sinon'
 
-describe('Peer', () => {
-  before(ctx => {
-    ctx.MessageBuffer = stub()
-    ctx.Peer = proxyquire.noCallThru()('../lib/Peer', {
-      './MessageBuffer': function (...args) { return ctx.MessageBuffer(...args) }
-    })['default']
-  })
+const shared = {
+  MessageBuffer () {}
+}
 
-  beforeEach(ctx => {
-    ctx.MessageBuffer.reset()
+const { default: Peer } = proxyquire.noCallThru()('../lib/Peer', {
+  './MessageBuffer': function (...args) { return shared.MessageBuffer(...args) }
+})
 
-    ctx.stream = stub({ read () {}, write () {} })
-  })
+test.beforeEach(t => {
+  const MessageBuffer = stub()
+  const stream = stub({ read () {}, write () {} })
 
-  describe('constructor (address, stream)', () => {
-    it('sets address on the instance', ctx => {
-      const address = Symbol()
-      assert(new ctx.Peer(address, ctx.stream).address === address)
-    })
+  // Note that the next tests' beforeEach hook overrides the shared stubs. Tests
+  // where Peer or MessageBuffer are instantiated asynchronously need to be
+  // marked as serial.
+  Object.assign(shared, { MessageBuffer })
 
-    it('sets the address’ serverId on the instance, as id', ctx => {
-      const serverId = Symbol()
-      assert(new ctx.Peer({ serverId }, ctx.stream).id === serverId)
-    })
+  Object.assign(t.context, { MessageBuffer, stream })
+})
 
-    it('creates a MessageBuffer instance for the stream', ctx => {
-      const messages = {}
-      ctx.MessageBuffer.returns(messages)
+test('set address on the instance', t => {
+  const { stream } = t.context
+  const address = Symbol()
+  t.true(new Peer(address, stream).address === address)
+})
 
-      const peer = new ctx.Peer({}, ctx.stream)
-      assert(ctx.MessageBuffer.calledOnce)
-      const { args: [stream] } = ctx.MessageBuffer.firstCall
-      assert(stream === ctx.stream)
-      assert(peer.messages === messages)
-    })
-  })
+test('set the address’ serverId on the instance, as id', t => {
+  const { stream } = t.context
+  const serverId = Symbol()
+  t.true(new Peer({ serverId }, stream).id === serverId)
+})
 
-  describe('#send (message)', () => {
-    it('writes the message to the stream', ctx => {
-      const message = Symbol()
-      const peer = new ctx.Peer({}, ctx.stream)
-      peer.send(message)
+test('create a MessageBuffer instance for the stream', t => {
+  const { MessageBuffer, stream: expectedStream } = t.context
+  const messages = {}
+  MessageBuffer.returns(messages)
 
-      assert(ctx.stream.write.calledOnce)
-      const { args: [written] } = ctx.stream.write.firstCall
-      assert(written === message)
-    })
-  })
+  const peer = new Peer({}, expectedStream)
+  t.true(MessageBuffer.calledOnce)
+  const { args: [stream] } = MessageBuffer.firstCall
+  t.true(stream === expectedStream)
+  t.true(peer.messages === messages)
+})
+
+test('send() writes the message to the stream', t => {
+  const { stream } = t.context
+  const message = Symbol()
+  const peer = new Peer({}, stream)
+  peer.send(message)
+
+  t.true(stream.write.calledOnce)
+  const { args: [written] } = stream.write.firstCall
+  t.true(written === message)
 })
