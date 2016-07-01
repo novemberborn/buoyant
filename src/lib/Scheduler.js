@@ -13,7 +13,7 @@ export default class Scheduler {
     this.queue = []
   }
 
-  asap (handleAbort = null, fn) {
+  asap (handleAbort, fn) {
     if (this.aborted) {
       if (handleAbort) {
         handleAbort()
