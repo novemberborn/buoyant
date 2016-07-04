@@ -1,13 +1,12 @@
-import { resolve } from 'path'
-
 import test from 'ava'
 import { spy, stub } from 'sinon'
 
 import {
   AppendEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
+} from 'dist/lib/symbols'
 
+import dist from './helpers/dist'
 import fork from './helpers/fork-context'
 import {
   setupConstructors,
@@ -21,7 +20,7 @@ import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './helper
 // Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
 const { Promise } = global
 
-const Candidate = setupConstructors(resolve(__dirname, '../lib/roles/Candidate'))
+const Candidate = setupConstructors(dist('lib/roles/Candidate'))
 
 test.beforeEach(t => {
   const becomeLeader = stub()

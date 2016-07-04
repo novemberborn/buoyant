@@ -7,7 +7,7 @@
 import test from 'ava'
 import { stub } from 'sinon'
 
-import State from '../lib/State'
+import State from 'dist/lib/State'
 
 import macro from './helpers/macro'
 

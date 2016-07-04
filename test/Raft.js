@@ -2,6 +2,7 @@ import test from 'ava'
 import proxyquire from 'proxyquire'
 import { spy, stub } from 'sinon'
 
+import dist from './helpers/dist'
 import fork from './helpers/fork-context'
 import macro from './helpers/macro'
 import { stubState } from './helpers/stub-helpers'
@@ -20,7 +21,7 @@ const shared = {
   State () {}
 }
 
-const { default: Raft } = proxyquire.noCallThru()('../lib/Raft', {
+const { default: Raft } = proxyquire.noCallThru()(dist('lib/Raft'), {
   './Log': function (...args) { return shared.Log(...args) },
   './LogEntryApplier': function (...args) { return shared.LogEntryApplier(...args) },
   './NonPeerReceiver': function (...args) { return shared.NonPeerReceiver(...args) },

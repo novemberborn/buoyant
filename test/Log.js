@@ -1,8 +1,8 @@
 import test from 'ava'
 import { stub } from 'sinon'
 
-import Entry from '../lib/Entry'
-import Log from '../lib/Log'
+import Entry from 'dist/lib/Entry'
+import Log from 'dist/lib/Log'
 
 import fork from './helpers/fork-context'
 import macro from './helpers/macro'

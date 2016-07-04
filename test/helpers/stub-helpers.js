@@ -1,7 +1,9 @@
 const { install: installClock } = require('lolex')
 const { stub } = require('sinon')
 
-const { default: Timers } = require('../../lib/Timers')
+const dist = require('./dist')
+
+const { default: Timers } = require(dist('lib/Timers'))
 
 function stubLog () {
   const log = stub({

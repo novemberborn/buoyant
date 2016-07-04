@@ -2,11 +2,13 @@ import test from 'ava'
 import proxyquire from 'proxyquire'
 import { stub } from 'sinon'
 
+import dist from './helpers/dist'
+
 const shared = {
   MessageBuffer () {}
 }
 
-const { default: Peer } = proxyquire.noCallThru()('../lib/Peer', {
+const { default: Peer } = proxyquire.noCallThru()(dist('lib/Peer'), {
   './MessageBuffer': function (...args) { return shared.MessageBuffer(...args) }
 })
 

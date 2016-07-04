@@ -1,7 +1,7 @@
 import test from 'ava'
 import { install as installClock } from 'lolex'
 import { spy } from 'sinon'
-import Timers from '../lib/Timers'
+import Timers from 'dist/lib/Timers'
 
 const clock = installClock(0, ['clearInterval', 'setInterval', 'clearTimeout', 'setTimeout'])
 

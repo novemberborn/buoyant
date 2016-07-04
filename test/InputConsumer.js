@@ -4,7 +4,7 @@
 import test from 'ava'
 import { stub } from 'sinon'
 
-import InputConsumer from '../lib/InputConsumer'
+import InputConsumer from 'dist/lib/InputConsumer'
 
 import fork from './helpers/fork-context'
 import macro from './helpers/macro'

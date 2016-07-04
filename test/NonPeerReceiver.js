@@ -2,6 +2,8 @@ import test from 'ava'
 import proxyquire from 'proxyquire'
 import { stub } from 'sinon'
 
+import dist from './helpers/dist'
+
 // Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
 const { Promise } = global
 
@@ -10,7 +12,7 @@ const shared = {
   Peer () {}
 }
 
-const { default: NonPeerReceiver } = proxyquire.noCallThru()('../lib/NonPeerReceiver', {
+const { default: NonPeerReceiver } = proxyquire.noCallThru()(dist('lib/NonPeerReceiver'), {
   './MessageBuffer': function (...args) { return shared.MessageBuffer(...args) },
   './Peer': function (...args) { return shared.Peer(...args) }
 })

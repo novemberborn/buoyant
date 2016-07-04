@@ -2,9 +2,10 @@ import test from 'ava'
 import proxyquire from 'proxyquire'
 import { spy, stub } from 'sinon'
 
-import _exposeEvents from '../lib/expose-events'
-import Address from '../lib/Address'
+import _exposeEvents from 'dist/lib/expose-events'
+import Address from 'dist/lib/Address'
 
+import dist from './helpers/dist'
 import fork from './helpers/fork-context'
 import macro from './helpers/macro'
 
@@ -16,7 +17,7 @@ const shared = {
   Raft () {}
 }
 
-const { default: Server } = proxyquire.noCallThru()('../lib/Server', {
+const { default: Server } = proxyquire.noCallThru()(dist('lib/Server'), {
   './expose-events': function (...args) { return shared.exposeEvents(...args) },
   './Raft': function (...args) { return shared.Raft(...args) }
 })

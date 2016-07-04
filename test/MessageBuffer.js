@@ -1,7 +1,7 @@
 import test from 'ava'
 import { stub } from 'sinon'
 
-import MessageBuffer from '../lib/MessageBuffer'
+import MessageBuffer from 'dist/lib/MessageBuffer'
 
 import fork from './helpers/fork-context'
 

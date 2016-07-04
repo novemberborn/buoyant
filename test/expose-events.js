@@ -1,10 +1,12 @@
 import test from 'ava'
 import proxyquire from 'proxyquire'
 import { spy, stub } from 'sinon'
+
+import dist from './helpers/dist'
 import macro from './helpers/macro'
 
 const stubbedProcess = stub({ nextTick () {} })
-const { default: exposeEvents } = proxyquire.noCallThru()('../lib/expose-events', {
+const { default: exposeEvents } = proxyquire.noCallThru()(dist('lib/expose-events'), {
   './process': stubbedProcess
 })
 

@@ -4,7 +4,7 @@
 import test from 'ava'
 import { spy, stub } from 'sinon'
 
-import Scheduler from '../lib/Scheduler'
+import Scheduler from 'dist/lib/Scheduler'
 
 import macro from './helpers/macro'
 

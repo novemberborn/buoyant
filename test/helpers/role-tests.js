@@ -3,8 +3,10 @@ const test = require('ava')
 const proxyquire = require('proxyquire')
 const { spy, stub } = require('sinon')
 
-const { default: ActualInputConsumer } = require('../../lib/InputConsumer')
-const { default: ActualScheduler } = require('../../lib/Scheduler')
+const dist = require('./dist')
+
+const { default: ActualInputConsumer } = require(dist('lib/InputConsumer'))
+const { default: ActualScheduler } = require(dist('lib/Scheduler'))
 
 function setupConstructors (roleSource) {
   const shared = {

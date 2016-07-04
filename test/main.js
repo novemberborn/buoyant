@@ -6,10 +6,11 @@ import {
   AppendEntries, AcceptEntries, RejectEntries,
   RequestVote, DenyVote, GrantVote,
   Noop
-} from '../lib/symbols'
-import Address from '../lib/Address'
-import Entry from '../lib/Entry'
+} from 'dist/lib/symbols'
+import Address from 'dist/lib/Address'
+import Entry from 'dist/lib/Entry'
 
+import dist from './helpers/dist'
 import macro from './helpers/macro'
 
 // Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
@@ -19,7 +20,7 @@ const shared = {
   Server () {}
 }
 
-const main = proxyquire.noCallThru()('../main', {
+const main = proxyquire.noCallThru()(dist('main'), {
   './lib/Server': function (...args) { return shared.Server(...args) }
 })
 

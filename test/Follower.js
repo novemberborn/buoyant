@@ -1,18 +1,17 @@
 // https://github.com/avajs/eslint-plugin-ava/issues/127
 /* eslint-disable ava/use-t */
 
-import { resolve } from 'path'
-
 import test from 'ava'
 import { spy, stub } from 'sinon'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,
   RequestVote, DenyVote, GrantVote
-} from '../lib/symbols'
+} from 'dist/lib/symbols'
 
-import Entry from '../lib/Entry'
+import Entry from 'dist/lib/Entry'
 
+import dist from './helpers/dist'
 import fork from './helpers/fork-context'
 import macro from './helpers/macro'
 import {
@@ -26,7 +25,7 @@ import { stubLog, stubMessages, stubPeer, stubState, stubTimers } from './helper
 // Don't use the Promise introduced by babel-runtime. https://github.com/avajs/ava/issues/947
 const { Promise } = global
 
-const Follower = setupConstructors(resolve(__dirname, '../lib/roles/Follower'))
+const Follower = setupConstructors(dist('lib/roles/Follower'))
 
 const usesScheduler = macro((t, method, getArgs = () => []) => {
   const { follower } = t.context

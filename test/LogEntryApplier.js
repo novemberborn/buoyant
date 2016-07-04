@@ -1,9 +1,9 @@
 import test from 'ava'
 import { spy, stub } from 'sinon'
 
-import { Noop } from '../lib/symbols'
-import Entry from '../lib/Entry'
-import LogEntryApplier from '../lib/LogEntryApplier'
+import { Noop } from 'dist/lib/symbols'
+import Entry from 'dist/lib/Entry'
+import LogEntryApplier from 'dist/lib/LogEntryApplier'
 
 import macro from './helpers/macro'
 

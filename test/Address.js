@@ -1,6 +1,6 @@
 import test from 'ava'
 import { stub } from 'sinon'
-import Address from '../lib/Address'
+import Address from 'dist/lib/Address'
 import macro from './helpers/macro'
 
 const throwsTypeError = macro((t, url, message) => {

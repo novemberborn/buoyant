@@ -17,17 +17,15 @@
   "engines": {
     "node": ">=6.2.2"
   },
-  "main": "main.js",
+  "main": "dist/main.js",
   "files": [
-    "main.js",
-    "main.js.map",
-    "lib",
+    "dist",
     "src"
   ],
   "scripts": {
-    "clean": "rimraf main.js main.js.map lib",
+    "clean": "rimraf dist",
     "prebuild": "npm run clean",
-    "build": "babel src --out-dir ./ --source-maps",
+    "build": "babel src --out-dir dist --source-maps",
     "prepublish": "npm run build",
     "example": "node bin/example.js",
     "lint": "as-i-preach",
@@ -42,6 +40,7 @@
     "babel-cli": "^6.10.1",
     "babel-core": "^6.9.1",
     "babel-plugin-__coverage__": "^11.0.0",
+    "babel-plugin-module-map": "^1.0.1",
     "babel-plugin-transform-es2015-modules-commonjs": "^6.10.3",
     "babel-plugin-transform-strict-mode": "^6.8.0",
     "chalk": "^1.1.3",
@@ -56,6 +55,7 @@
   "ava": {
     "babel": {
       "plugins": [
+        ["babel-plugin-module-map", { "dist": "./dist" }],
         "transform-async-to-generator",
         "transform-es2015-modules-commonjs",
         "transform-strict-mode"
@@ -64,8 +64,7 @@
     "files": "test/*.js",
     "source": [
       "package.json",
-      "main.js",
-      "lib"
+      "dist/**/*.js"
     ]
   },
   "babel": {

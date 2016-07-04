@@ -1,5 +1,5 @@
 import test from 'ava'
-import Entry from '../lib/Entry'
+import Entry from 'dist/lib/Entry'
 import macro from './helpers/macro'
 
 const throwsTypeError = macro((t, values, message) => {
