@@ -23,16 +23,18 @@
     "src"
   ],
   "scripts": {
-    "clean": "rimraf dist",
+    "prepublish": "npm run build",
+    "clean": "rimraf dist coverage",
     "prebuild": "npm run clean",
     "build": "babel src --out-dir dist --source-maps",
-    "prepublish": "npm run build",
-    "example": "node bin/example.js",
+    "precoverage": "npm run clean",
+    "coverage": "npm run build -- --plugins __coverage__ && nyc npm test",
+    "example": "node scripts/example.js",
     "lint": "as-i-preach",
     "test": "ava",
     "posttest": "npm run lint",
-    "precoverage": "rimraf coverage",
-    "coverage": "npm run build -- --plugins __coverage__ && nyc npm test"
+    "watch:build": "npm run build -- --watch",
+    "watch:test": "npm run test -- --watch"
   },
   "devDependencies": {
     "@novemberborn/as-i-preach": "^3.1.1",
