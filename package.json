@@ -17,10 +17,10 @@
   "engines": {
     "node": ">=6.2.2"
   },
-  "main": "dist/main.js",
+  "main": "dist/lib/main.js",
   "files": [
-    "dist",
-    "src"
+    "dist/lib",
+    "src/lib"
   ],
   "scripts": {
     "prepublish": "npm run build",
@@ -63,10 +63,10 @@
         "transform-strict-mode"
       ]
     },
-    "files": "test/*.js",
+    "files": "test/**/*.js",
     "source": [
       "package.json",
-      "dist/**/*.js"
+      "dist/lib/**/*.js"
     ]
   },
   "babel": {

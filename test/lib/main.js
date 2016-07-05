@@ -20,8 +20,8 @@ const shared = {
   Server () {}
 }
 
-const main = proxyquire.noCallThru()(dist('main'), {
-  './lib/Server': function (...args) { return shared.Server(...args) }
+const main = proxyquire.noCallThru()(dist('lib/main'), {
+  './Server': function (...args) { return shared.Server(...args) }
 })
 
 const throwsTypeError = macro((t, param, value, message) => {

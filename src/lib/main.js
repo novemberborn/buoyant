@@ -1,7 +1,7 @@
-import * as symbols from './lib/symbols'
-import Address from './lib/Address'
-import Entry from './lib/Entry'
-import Server from './lib/Server'
+import * as symbols from './symbols'
+import Address from './Address'
+import Entry from './Entry'
+import Server from './Server'
 
 export { symbols, Address, Entry }
 
