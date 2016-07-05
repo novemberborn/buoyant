@@ -6,11 +6,11 @@ export default class State {
     this.currentTerm = 0
     this.votedFor = null
 
-    this.persist = () => {
-      return persist({
+    this.persist = async () => {
+      await persist({
         currentTerm: this.currentTerm,
         votedFor: this.votedFor
-      }).then(() => undefined)
+      })
     }
   }
 

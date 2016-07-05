@@ -74,51 +74,47 @@ export default class Log {
     return entries
   }
 
-  appendValue (currentTerm, value) {
+  async appendValue (currentTerm, value) {
     const entry = new Entry(this.lastIndex + 1, currentTerm, value)
+
+    await this.persistEntries([entry])
 
     // Persistence is asynchronous, yet `lastIndex` is set to the entry's index
     // when it's finished. This assumes the calling code does not perform any
     // other operations that affect the log.
-    return this.persistEntries([entry]).then(() => {
-      this.lastIndex = entry.index
-      this.lastTerm = entry.term
-      this.entries.set(entry.index, entry)
+    this.lastIndex = entry.index
+    this.lastTerm = entry.term
+    this.entries.set(entry.index, entry)
 
-      return entry
-    })
+    return entry
   }
 
-  mergeEntries (entries) {
+  async mergeEntries (entries) {
     // Clean up the list of entries before persisting them. Entries that are
     // already in the log don't need to be persisted again.
     entries = entries.filter(entry => {
       return !this.entries.has(entry.index) || this.entries.get(entry.index).term !== entry.term
     })
 
-    if (entries.length === 0) {
-      return Promise.resolve()
-    }
+    if (entries.length === 0) return
+
+    await this.persistEntries(entries)
 
     // Like `appendValue()` this assumes the calling code does not perform any
     // other operations that affect the log.
-    return this.persistEntries(entries).then(() => {
-      let last
-      for (const entry of entries) {
-        // Overwrite the log if necessary.
-        if (this.entries.has(entry.index)) {
-          this.deleteConflictingEntries(entry.index)
-        }
-
-        this.entries.set(entry.index, entry)
-        last = entry
+    let last
+    for (const entry of entries) {
+      // Overwrite the log if necessary.
+      if (this.entries.has(entry.index)) {
+        this.deleteConflictingEntries(entry.index)
       }
 
-      this.lastIndex = last.index
-      this.lastTerm = last.term
+      this.entries.set(entry.index, entry)
+      last = entry
+    }
 
-      return
-    })
+    this.lastIndex = last.index
+    this.lastTerm = last.term
   }
 
   commit (index) {

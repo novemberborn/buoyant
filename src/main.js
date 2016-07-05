@@ -66,19 +66,13 @@ export function createServer ({
 
   return new Server({
     address,
-    applyEntry (entry) {
-      return new Promise(resolve => resolve(applyEntry(entry)))
-    },
+    applyEntry: async entry => applyEntry(entry),
     crashHandler,
     createTransport,
     electionTimeoutWindow,
     heartbeatInterval,
     id: address.serverId,
-    persistEntries (entries) {
-      return new Promise(resolve => resolve(persistEntries(entries)))
-    },
-    persistState (state) {
-      return new Promise(resolve => resolve(persistState(state)))
-    }
+    persistEntries: async entries => persistEntries(entries),
+    persistState: async state => persistState(state)
   })
 }

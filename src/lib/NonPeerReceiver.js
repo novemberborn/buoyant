@@ -11,7 +11,8 @@ export default class NonPeerReceiver {
     this.messages = new MessageBuffer(stream)
   }
 
-  createPeer (address) {
-    return this.connect({ address, writeOnly: true }).then(stream => new Peer(address, stream))
+  async createPeer (address) {
+    const stream = await this.connect({ address, writeOnly: true })
+    return new Peer(address, stream)
   }
 }

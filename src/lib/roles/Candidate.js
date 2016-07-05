@@ -65,32 +65,29 @@ export default class Candidate {
   }
 
   requestVote () {
-    this.scheduler.asap(null, () => {
+    this.scheduler.asap(null, async () => {
       // A majority of votes is required. Note that the candidate votes for
       // itself, so at least half of the remaining votes are needed.
       this.votesRequired = Math.ceil(this.peers.length / 2)
       // Track which peers granted their vote to avoid double-counting.
       this.votesAlreadyReceived = new Set()
 
-      return this.state.nextTerm(this.ourId).then(() => {
-        if (this.destroyed) return
+      await this.state.nextTerm(this.ourId)
+      if (this.destroyed) return
 
-        for (const peer of this.peers) {
-          peer.send({
-            type: RequestVote,
-            term: this.state.currentTerm,
-            lastLogIndex: this.log.lastIndex,
-            lastLogTerm: this.log.lastTerm
-          })
-        }
+      for (const peer of this.peers) {
+        peer.send({
+          type: RequestVote,
+          term: this.state.currentTerm,
+          lastLogIndex: this.log.lastIndex,
+          lastLogTerm: this.log.lastTerm
+        })
+      }
 
-        // Start the timer for this election. Intervals aren't used as they
-        // complicate the logic. As the server isn't expected to remain a
-        // candidate for very long there shouldn't be too many timers created.
-        this.timeoutObject = this.timers.setTimeout(() => this.requestVote(), this.electionTimeout)
-
-        return
-      })
+      // Start the timer for this election. Intervals aren't used as they
+      // complicate the logic. As the server isn't expected to remain a
+      // candidate for very long there shouldn't be too many timers created.
+      this.timeoutObject = this.timers.setTimeout(() => this.requestVote(), this.electionTimeout)
     })
   }
 

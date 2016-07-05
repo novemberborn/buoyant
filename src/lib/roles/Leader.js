@@ -201,7 +201,8 @@ export default class Leader {
     return new Promise((resolve, reject) => {
       this.scheduler.asap(
         () => reject(new Error('Aborted')),
-        () => this.log.appendValue(this.state.currentTerm, value).then(entry => {
+        async () => {
+          const entry = await this.log.appendValue(this.state.currentTerm, value)
           if (this.destroyed) {
             reject(new Error('No longer leader'))
             return
@@ -221,9 +222,8 @@ export default class Leader {
             this.updateFollower(peer, state, false)
           }
           this.skipNextHeartbeat = true
-
-          return
-        }))
+        }
+      )
     })
   }
 

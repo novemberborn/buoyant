@@ -99,11 +99,10 @@ export default class InputConsumer {
     }
   }
 
-  handleNonPeerMessage (address, message) {
-    return this.nonPeerReceiver.createPeer(address).then(peer => {
-      if (this.stopped) return
-
+  async handleNonPeerMessage (address, message) {
+    const peer = await this.nonPeerReceiver.createPeer(address)
+    if (!this.stopped) {
       return this.handleMessage(peer, message)
-    })
+    }
   }
 }

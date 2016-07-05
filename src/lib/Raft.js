@@ -73,30 +73,23 @@ export default class Raft {
     return this.log.destroy()
   }
 
-  joinInitialCluster ({ addresses, connect, nonPeerStream }) {
+  async joinInitialCluster ({ addresses, connect, nonPeerStream }) {
+    let failed = false
+
     // Attempt to connect to each address in the cluster and instantiate a peer
     // when successful. Let errors propagate to the server, which should in turn
     // destroy the transport before attempting to rejoin.
-    const connectingPeers = addresses.map(address => {
-      let abort = null
-      let aborted = false
-      const promise = new Promise((resolve, reject) => {
-        connect({ address }).then(stream => {
-          if (!aborted) {
-            resolve(new Peer(address, stream))
-          }
+    const connectingPeers = addresses.map(async address => {
+      const stream = await connect({ address })
 
-          return
-        }).catch(reject)
-        abort = () => {
-          aborted = true
-          resolve(null)
-        }
-      })
-      return [promise, abort]
+      // Don't instantiate peers after errors have occured
+      if (failed) return
+
+      return new Peer(address, stream)
     })
 
-    return Promise.all(connectingPeers.map(([promise]) => promise)).then(peers => {
+    try {
+      const peers = await Promise.all(connectingPeers)
       // Create a receiver for the non-peer stream, through which messages can
       // be received from other servers that are not yet in the cluster. These
       // must still be handled.
@@ -105,16 +98,10 @@ export default class Raft {
       this.peers = peers
       // Now enter the initial follower state.
       this.convertToFollower()
-
-      return
-    }).catch(err => {
-      // Upon the first connection error abort any other connection attempts.
-      for (const [, abort] of connectingPeers) {
-        abort()
-      }
-
+    } catch (err) {
+      failed = true
       throw err
-    })
+    }
   }
 
   becomeLeader () {
