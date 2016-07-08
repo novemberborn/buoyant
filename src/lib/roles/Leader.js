@@ -45,6 +45,7 @@ export default class Leader {
     this.commitIndex = 0
     this.destroyed = false
     this.pendingApplication = []
+    this.scheduledHeartbeatHandler = false
     this.skipNextHeartbeat = false
     this.intervalObject = null
 
@@ -81,26 +82,27 @@ export default class Leader {
   }
 
   sendHeartbeat () {
-    // Heartbeats are sent on an interval rather than a timer that is restarted.
-    // This should be more efficient. A flag is set after all followers are
-    // updated with an actual entry to avoid sending an unnecessary heartbeat.
-    if (this.skipNextHeartbeat) {
-      this.skipNextHeartbeat = false
-      return
-    }
+    // Use the scheduler to avoid interrupting an active operation. However the
+    // scheduler may be blocked for longer than the heartbeat interval. Ignore
+    // further invocations until the first heartbeat has been sent.
+    if (this.scheduledHeartbeatHandler) return
 
-    // Don't use the scheduler here as it's OK to send heartbeats with stale
-    // data. This should prevent the leader from being deposed if persistence
-    // operations are taking longer than the election timeouts of the followers.
-    //
-    // (Of course if an operation is stuck then the cluster will no longer make
-    // progress. The cluster will also fail to make progress if half of the
-    // followers are stuck. The program that uses Buoyant is expected to fail
-    // its persistence operation if it can't complete in a reasonable amount of
-    // time.)
-    for (const [peer, state] of this.peerState) {
-      this.updateFollower(peer, state, true)
-    }
+    this.scheduledHeartbeatHandler = true
+    this.scheduler.asap(null, () => {
+      this.scheduledHeartbeatHandler = false
+
+      // Heartbeats are sent using an interval rather than a timer. This should
+      // be more efficient. To avoid sending unnecessary heartbeats, a flag is
+      // set after all followers are updated with an actual entry.
+      if (this.skipNextHeartbeat) {
+        this.skipNextHeartbeat = false
+        return
+      }
+
+      for (const [peer, state] of this.peerState) {
+        this.updateFollower(peer, state, true)
+      }
+    })
   }
 
   handleMessage (peer, message) {

@@ -46,6 +46,16 @@ function wasEntries (t, call, { prevLogIndex: expectedPrevLogIndex, leaderCommit
   t.deepEqual(entries, entryIndexes)
 }
 
+const usesScheduler = macro((t, method) => {
+  const { leader } = t.context
+  // Only checks whether the scheduler is used. Not a perfect test since
+  // it doesn't confirm that the operation is actually gated by the
+  // scheduler.
+  spy(leader.scheduler, 'asap')
+  leader[method]()
+  t.true(leader.scheduler.asap.calledOnce)
+}, (_, method) => `${method}() uses the scheduler`)
+
 const rejectEntriesDoesNotRespond = macro((t, conflictingIndex) => {
   const { leader, peers: [follower] } = t.context
   leader.handleRejectEntries(follower, 1, { conflictingIndex })
@@ -235,6 +245,28 @@ test('destroy() clears the heartbeat timer', t => {
 testInputConsumerDestruction('leader')
 testSchedulerDestruction('leader')
 
+test(usesScheduler, 'sendHeartbeat')
+
+test('sendHeartbeat() does not schedule again if already scheduled', t => {
+  const { leader } = t.context
+  const asap = stub(leader.scheduler, 'asap')
+  leader.sendHeartbeat()
+  t.true(asap.calledOnce)
+
+  leader.sendHeartbeat()
+  t.true(asap.calledOnce)
+})
+
+test('sendHeartbeat() does schedule again once run', t => {
+  const { leader } = t.context
+  const asap = stub(leader.scheduler, 'asap')
+  leader.sendHeartbeat()
+  asap.firstCall.yield()
+
+  leader.sendHeartbeat()
+  t.true(asap.calledTwice)
+})
+
 test('sendHeartbeat() sends a heartbeat message to each follower', t => {
   const { leader, peers } = t.context
   leader.sendHeartbeat()
@@ -243,13 +275,6 @@ test('sendHeartbeat() sends a heartbeat message to each follower', t => {
     t.true(peer.send.calledOnce)
     wasHeartbeat(t, peer.send.firstCall, { prevLogIndex: 2, leaderCommit: 0 })
   }
-})
-
-test('sendHeartbeat() forgoes the scheduler', t => {
-  const { leader } = t.context
-  spy(leader.scheduler, 'asap')
-  leader.sendHeartbeat()
-  t.true(leader.scheduler.asap.notCalled)
 })
 
 testFollowerConversion('leader')
@@ -445,15 +470,7 @@ test('append() returns a promise', t => {
   t.true(leader.append() instanceof Promise)
 })
 
-test('append() uses the scheduler', t => {
-  const { leader } = t.context
-  // Only checks whether the scheduler is used. Not a perfect test since
-  // it doesn't confirm that the operation is actually gated by the
-  // scheduler.
-  spy(leader.scheduler, 'asap')
-  leader.append()
-  t.true(leader.scheduler.asap.calledOnce)
-})
+test(usesScheduler, 'append')
 
 test('append() rejects the returned promise if the scheduler is aborted', async t => {
   const { leader } = t.context
