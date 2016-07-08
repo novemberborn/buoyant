@@ -163,7 +163,7 @@ export default class Follower {
     this.ignoreNextElectionTimeout = true
 
     // Merge any entries into the log.
-    let pending = this.log.mergeEntries(entries)
+    let pending = this.log.mergeEntries(entries, prevLogIndex, prevLogTerm)
     // Update the current term if the leader's newer.
     if (term > this.state.currentTerm) {
       pending = Promise.all([pending, this.state.setTerm(term)])

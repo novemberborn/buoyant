@@ -89,7 +89,15 @@ export default class Log {
     return entry
   }
 
-  async mergeEntries (entries) {
+  async mergeEntries (entries, prevLogIndex, prevLogTerm) {
+    if (this.lastIndex > prevLogIndex) {
+      // The log contains extra entries that are not present on the leader.
+      // Remove them to achieve convergence.
+      this.deleteConflictingEntries(prevLogIndex + 1)
+      this.lastIndex = prevLogIndex
+      this.lastTerm = prevLogTerm
+    }
+
     // Clean up the list of entries before persisting them. Entries that are
     // already in the log don't need to be persisted again.
     entries = entries.filter(entry => {

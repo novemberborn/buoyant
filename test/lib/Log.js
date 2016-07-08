@@ -283,7 +283,7 @@ preseeded.test('mergeEntries() does not persist duplicate entries', t => {
   t.true(persisting[0] === extra)
 })
 
-preseeded.test('mergeEntries() is a no-op if there are no new entries to be merged', async t => {
+preseeded.test('mergeEntries() does not persist if there are no new entries to be merged', async t => {
   const { entries, log, persistEntries } = t.context
   const promise = log.mergeEntries(entries)
   t.true(persistEntries.notCalled)
@@ -317,6 +317,16 @@ preseeded.test('mergeEntries() deletes earlier conflicting entries', async t => 
   for (const entry of newEntries) {
     t.true(log.getEntry(entry.index) === entry)
   }
+})
+
+preseeded.test('mergeEntries() deletes conflicting entries even if no new entries are merged', async t => {
+  const { entries, log } = setupResolvePersistEntries(t.context)
+  await log.mergeEntries([], 1, 1)
+
+  t.true(log.getEntry(1) === entries[0])
+  t.true(!log.getEntry(2))
+  t.true(log.lastIndex === 1)
+  t.true(log.lastTerm === 1)
 })
 
 test('mergeEntries() sets lastIndex once all entries are persisted', async t => {

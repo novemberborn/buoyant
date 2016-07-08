@@ -365,13 +365,15 @@ test('handleAppendEntries() sends a RejectEntries message to the peer, without m
 
 test('handleAppendEntries() merges the entries if its entry that preceeds the first sent entry has the right term', t => {
   const { follower, log, peers: [leader] } = t.context
-  log.getEntry.returns(new Entry(1, 1, Symbol()))
+  log.getEntry.returns(new Entry(2, 1, Symbol()))
   const entries = Symbol()
-  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries, leaderCommit: 0 })
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 2, prevLogTerm: 1, entries, leaderCommit: 0 })
 
   t.true(log.mergeEntries.calledOnce)
-  const { args: [merged] } = log.mergeEntries.firstCall
+  const { args: [merged, prevLogIndex, prevLogTerm] } = log.mergeEntries.firstCall
   t.true(merged === entries)
+  t.true(prevLogIndex === 2)
+  t.true(prevLogTerm === 1)
 })
 
 test('handleAppendEntries() merges the entries if the leader sends its first entry', t => {
