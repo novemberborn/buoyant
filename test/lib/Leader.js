@@ -3,8 +3,7 @@ import { spy, stub } from 'sinon'
 
 import {
   AppendEntries, RejectEntries, AcceptEntries,
-  RequestVote, DenyVote,
-  Noop
+  RequestVote, DenyVote
 } from 'dist/lib/symbols'
 
 import Entry from 'dist/lib/Entry'
@@ -184,6 +183,8 @@ const canAppend = fork().beforeEach(t => {
     await Promise.resolve()
   }
 
+  leader.start()
+
   Object.assign(t.context, { appendedValues, leaderAppend })
 })
 
@@ -212,22 +213,13 @@ test('start() starts the heartbeat timer', t => {
   const { clock, heartbeatInterval, leader } = t.context
   spy(leader, 'sendHeartbeat')
   leader.start()
-
-  clock.tick(heartbeatInterval)
   t.true(leader.sendHeartbeat.calledOnce)
 
   clock.tick(heartbeatInterval)
   t.true(leader.sendHeartbeat.calledTwice)
-})
 
-test('start() appends a Noop entry', t => {
-  const { leader } = t.context
-  spy(leader, 'append')
-  leader.start()
-
-  t.true(leader.append.calledOnce)
-  const { args: [value] } = leader.append.firstCall
-  t.true(value === Noop)
+  clock.tick(heartbeatInterval)
+  t.true(leader.sendHeartbeat.calledThrice)
 })
 
 testInputConsumerStart('leader')
@@ -237,9 +229,11 @@ test('destroy() clears the heartbeat timer', t => {
   spy(leader, 'sendHeartbeat') // spy on the method called by the timer
 
   leader.start()
+  t.true(leader.sendHeartbeat.calledOnce)
+
   leader.destroy() // should prevent the timer from triggering
   clock.tick(heartbeatInterval) // timer should fire now, if not cleared
-  t.true(leader.sendHeartbeat.notCalled) // should not be called
+  t.true(leader.sendHeartbeat.calledOnce) // should not be called again
 })
 
 testInputConsumerDestruction('leader')
@@ -515,12 +509,11 @@ afterAppend.test('append() sends new entries to each peer', t => {
 })
 
 afterAppend.test('append() prevents the next heartbeat message from being sent', t => {
-  const { clock, heartbeatInterval, leader, peers } = t.context
+  const { clock, heartbeatInterval, peers } = t.context
   for (const peer of peers) {
     peer.send.reset()
   }
 
-  leader.start()
   clock.tick(heartbeatInterval)
   for (const peer of peers) {
     t.true(peer.send.notCalled)
@@ -528,12 +521,11 @@ afterAppend.test('append() prevents the next heartbeat message from being sent',
 })
 
 afterAppend.test('append() resumes sending the heartbeat message after skipping the immediate one', t => {
-  const { clock, heartbeatInterval, leader, peers } = t.context
+  const { clock, heartbeatInterval, peers } = t.context
   for (const peer of peers) {
     peer.send.reset()
   }
 
-  leader.start()
   clock.tick(heartbeatInterval)
   for (const peer of peers) {
     t.true(peer.send.notCalled)

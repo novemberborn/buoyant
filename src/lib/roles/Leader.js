@@ -1,7 +1,6 @@
 import {
   AppendEntries, RejectEntries, AcceptEntries,
-  RequestVote, DenyVote,
-  Noop
+  RequestVote, DenyVote
 } from '../symbols'
 
 import InputConsumer from '../InputConsumer'
@@ -62,9 +61,12 @@ export default class Leader {
   start () {
     this.intervalObject = this.timers.setInterval(() => this.sendHeartbeat(), this.heartbeatInterval)
 
-    // Claim leadership by appending a no-op entry. Committing that entry also
-    // causes any uncommitted entries from previous terms to be committed.
-    this.append(Noop)
+    // Claim leadership by sending a heartbeat.
+    this.sendHeartbeat()
+
+    // TODO: Determine if there are uncommitted entries from previous terms. If
+    // so, append a no-op entry. Once that entry is committed so will the
+    // previous entries.
 
     // Start last so it doesn't preempt claiming leadership.
     this.inputConsumer.start()
