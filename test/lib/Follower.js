@@ -164,6 +164,14 @@ const appendingEntries = fork().beforeEach(async t => {
   await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 0 })
 })
 
+const rejectingEntries = fork().beforeEach(async t => {
+  const { follower, log, peers: [leader] } = t.context
+  follower.start()
+  // Entries are rejected because the follower does not have the previous entry.
+  log.getEntry.returns(undefined)
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
+})
+
 testInputConsumerInstantiation('follower')
 testSchedulerInstantiation('follower')
 
@@ -388,6 +396,8 @@ test('handleAppendEntries() merges the entries if the leader sends its first ent
 
 appendingEntries.test('when entries are being merged', dontBecomeCandidateAfterFirstTimeout)
 appendingEntries.test('when entries are being merged', becomeCandidateAfterSecondTimeout)
+rejectingEntries.test('when entries are being rejected', dontBecomeCandidateAfterFirstTimeout)
+rejectingEntries.test('when entries are being rejected', becomeCandidateAfterSecondTimeout)
 
 test('handleAppendEntries() updates its term to that of the leader if it is ahead, and entries are being merged', t => {
   const { follower, leader, state } = t.context

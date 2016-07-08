@@ -141,6 +141,9 @@ export default class Follower {
       return
     }
 
+    // Avoid accidentally deposing the leader.
+    this.ignoreNextElectionTimeout = true
+
     // Verify the first entry received can safely be appended to the log. There
     // must not be any gaps. An index of 0 implies that the leader is sending
     // its first entry so there won't be any gaps.
@@ -158,9 +161,6 @@ export default class Follower {
         return
       }
     }
-
-    // Avoid accidentally deposing the leader.
-    this.ignoreNextElectionTimeout = true
 
     // Merge any entries into the log.
     let pending = this.log.mergeEntries(entries, prevLogIndex, prevLogTerm)
