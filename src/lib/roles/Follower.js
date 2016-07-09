@@ -153,10 +153,7 @@ export default class Follower {
         peer.send({
           type: RejectEntries,
           term: this.state.currentTerm,
-          // Include the index of the conflicting entry. Otherwise, since
-          // communication is based on message passing, the leader can't tell
-          // which index was rejected.
-          conflictingIndex: prevLogIndex
+          conflictingIndex: Math.min(prevLogIndex, Math.max(this.log.lastIndex, 1))
         })
         return
       }

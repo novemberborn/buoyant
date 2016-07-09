@@ -354,17 +354,30 @@ test('handleAppendEntries() does not merge entries if the leader’s term is beh
 test('handleAppendEntries() sends a RejectEntries message to the peer, without merging entries, if it doesn’t have the entry that preceeds the first sent entry (which isn’t the leader’s first entry)', async t => {
   const { follower, log, peers: [leader] } = t.context
   log.getEntry.returns(undefined)
-  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
+  log._lastIndex.returns(3)
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 5, prevLogTerm: 1, entries: [] })
 
   t.true(leader.send.calledOnce)
   const { args: [rejected] } = leader.send.firstCall
-  t.deepEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 1 })
+  t.deepEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 3 })
 })
 
 test('handleAppendEntries() sends a RejectEntries message to the peer, without merging entries, if its entry that preceeds the first sent entry has the wrong term', async t => {
   const { follower, log, peers: [leader] } = t.context
   log.getEntry.returns(new Entry(1, 2, Symbol()))
-  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 1, prevLogTerm: 1, entries: [] })
+  log._lastIndex.returns(4)
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 2, prevLogTerm: 1, entries: [] })
+
+  t.true(leader.send.calledOnce)
+  const { args: [rejected] } = leader.send.firstCall
+  t.deepEqual(rejected, { type: RejectEntries, term: 2, conflictingIndex: 2 })
+})
+
+test('handleAppendEntries() sends a RejectEntries message to the peer, without merging entries, if it doesn’t yet have any entries, and the leader isn’t sending its first entry', async t => {
+  const { follower, log, peers: [leader] } = t.context
+  log.getEntry.returns(undefined)
+  log._lastIndex.returns(0)
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 5, prevLogTerm: 1, entries: [] })
 
   t.true(leader.send.calledOnce)
   const { args: [rejected] } = leader.send.firstCall
