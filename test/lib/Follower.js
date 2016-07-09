@@ -481,16 +481,18 @@ test('handleAppendEntries() sends an AcceptEntries message to the candidate, aft
   t.deepEqual(accepted, { type: AcceptEntries, term: 2, lastLogIndex: 0 })
 })
 
-test('handleAppendEntries() commits the log up to the leader’s commit index, if it is ahead', t => {
+test('handleAppendEntries() commits the log up to the leader’s commit index, if it is ahead, but no further than the log’s last index', t => {
   const { follower, log, peers: [leader] } = t.context
-  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
+  log._lastIndex.returns(2)
+  follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 3 })
   t.true(log.commit.calledOnce)
   const { args: [commit] } = log.commit.firstCall
-  t.true(commit === 1)
+  t.true(commit === 2)
 })
 
 test('handleAppendEntries() stores the leader’s commit index, if it is ahead', async t => {
   const { follower, log, peers: [leader] } = t.context
+  log._lastIndex.returns(1)
   await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 1 })
   t.true(log.commit.calledOnce)
 
@@ -499,12 +501,14 @@ test('handleAppendEntries() stores the leader’s commit index, if it is ahead',
   t.true(log.commit.calledOnce)
 
   // Another commit if the index is higher again
-  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 2 })
+  log._lastIndex.returns(2)
+  await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 3 })
   t.true(log.commit.calledTwice)
 })
 
 test('handleAppendEntries() does not commit the log if the leader’s commit index is behind', async t => {
   const { follower, log, peers: [leader] } = t.context
+  log._lastIndex.returns(10)
   await follower.handleAppendEntries(leader, 2, { term: 2, prevLogIndex: 0, prevLogTerm: 0, entries: [], leaderCommit: 10 })
   log.commit.reset()
 

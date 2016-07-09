@@ -171,8 +171,8 @@ export default class Follower {
 
     // Commit the same entries as the leader.
     if (leaderCommit > this.commitIndex) {
-      this.log.commit(leaderCommit)
-      this.commitIndex = leaderCommit
+      this.commitIndex = Math.min(leaderCommit, this.log.lastIndex)
+      this.log.commit(this.commitIndex)
     }
 
     return pending.then(() => {
