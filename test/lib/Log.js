@@ -401,3 +401,33 @@ test('commit() returns a promise that is fulfilled with the result of committing
   resolve(result)
   t.true(await p === result)
 })
+
+test('checkOutdated() return true if the term is less than the last term', t => {
+  const { log } = t.context
+  log.replace([new Entry(2, 2)])
+  t.true(log.checkOutdated(1, 2))
+})
+
+test('checkOutdated() return true if the term is equal to the last term, but the index is less than the last index', t => {
+  const { log } = t.context
+  log.replace([new Entry(2, 2)])
+  t.true(log.checkOutdated(2, 1))
+})
+
+test('checkOutdated() return false if the term is greater than the last term', t => {
+  const { log } = t.context
+  log.replace([new Entry(2, 2)])
+  t.false(log.checkOutdated(3, 2))
+})
+
+test('checkOutdated() return false if the term is equal to the last term, and the index is equal to the last index', t => {
+  const { log } = t.context
+  log.replace([new Entry(2, 2)])
+  t.false(log.checkOutdated(2, 2))
+})
+
+test('checkOutdated() return false if the term is equal to the last term, and the index is greater than the last index', t => {
+  const { log } = t.context
+  log.replace([new Entry(2, 2)])
+  t.false(log.checkOutdated(2, 3))
+})

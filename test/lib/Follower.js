@@ -37,31 +37,35 @@ const usesScheduler = macro((t, method, getArgs = () => []) => {
   t.true(follower.scheduler.asap.calledOnce)
 }, (condition, method) => `${method}() uses the scheduler ${condition}`.trim())
 
-const ignoresRequest = macro(async (t, term, lastLogIndex, lastLogTerm) => {
-  const { candidate, follower } = t.context
+const ignoresRequest = macro(async (t, term, outdated) => {
+  const { candidate, follower, log } = t.context
+  log.checkOutdated.returns(outdated)
   // The other arguments should cause the vote to be granted, were it not
   // for the log index.
-  await follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
+  await follower.handleRequestVote(candidate, term, {})
   // Verify no messages were sent.
   t.true(candidate.send.notCalled)
 }, condition => `handleRequestVote() ignores the request if the candidate's ${condition}`)
 
-const setsTerm = macro(async (t, term, lastLogIndex, lastLogTerm) => {
-  const { candidate, follower, state } = t.context
-  await follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
+const setsTerm = macro(async (t, term, outdated) => {
+  const { candidate, follower, log, state } = t.context
+  log.checkOutdated.returns(outdated)
+  await follower.handleRequestVote(candidate, term, {})
   t.true(state.setTerm.calledOnce)
   const { args: [value] } = state.setTerm.firstCall
   t.true(value === term)
 }, condition => `handleRequestVote() updates its term to that of the candidate if it is ahead, even if the candidate’s ${condition}`)
 
-const returnsPromiseForTermUpdate = macro(async (t, term, lastLogIndex, lastLogTerm) => {
-  const { candidate, follower, state } = t.context
+const returnsPromiseForTermUpdate = macro(async (t, term, outdated) => {
+  const { candidate, follower, log, state } = t.context
+  log.checkOutdated.returns(outdated)
+
   let updated
   state.setTerm.returns(new Promise(resolve => {
     updated = resolve
   }))
 
-  const promise = follower.handleRequestVote(candidate, term, { lastLogIndex, lastLogTerm })
+  const promise = follower.handleRequestVote(candidate, term, {})
 
   const probe = Symbol()
   updated(probe)
@@ -136,9 +140,7 @@ test.afterEach(t => {
 })
 
 const beforeVoteRequest = fork().beforeEach(t => {
-  const { log, peers: [candidate] } = t.context
-  log._lastIndex.returns(2)
-  log._lastTerm.returns(2)
+  const { peers: [candidate] } = t.context
   Object.assign(t.context, { candidate })
 })
 
@@ -261,31 +263,30 @@ beforeVoteRequest.test('handleRequestVote() sends a DenyVote message to the cand
   t.deepEqual(denied, { type: DenyVote, term: 2 })
 })
 
+beforeVoteRequest.test('handleRequestVote() calls checkOutdated() on the log with the received last log index and term', t => {
+  const { candidate, follower, log } = t.context
+  const lastLogIndex = Symbol()
+  const lastLogTerm = Symbol()
+  follower.handleRequestVote(candidate, 2, { lastLogIndex, lastLogTerm })
+
+  t.true(log.checkOutdated.calledOnce)
+  const { args: [term, index] } = log.checkOutdated.firstCall
+  t.true(index === lastLogIndex)
+  t.true(term === lastLogTerm)
+})
+
 for (const [votingCondition, context, shouldGrantVote] of [
   ['not yet voted', beforeVoteRequest, true],
   ['already voted for the candidate', hasVotedForCandidate, true],
   ['already voted for another candidate', hasVotedForOtherCandidate, false]
 ]) {
-  for (const [condition, term, lastLogIndex, lastLogTerm] of [
-    [`log index is behind and the follower has ${votingCondition}`, 3, 1, 1],
-    [`log term is behind and the follower has ${votingCondition}`, 3, 2, 1]
-  ]) {
-    context.test(condition, ignoresRequest, term, lastLogIndex, lastLogTerm)
-    context.test(condition, setsTerm, term, lastLogIndex, lastLogTerm)
-    context.test(condition, returnsPromiseForTermUpdate, term, lastLogIndex, lastLogTerm)
+  for (const macro of [ignoresRequest, setsTerm, returnsPromiseForTermUpdate]) {
+    context.test(`is outdated, and the follower has ${votingCondition}`, macro, 3, true)
   }
-
-  for (const [condition, lastLogIndex, lastLogTerm] of [
-    [`log index is equal, as is its log term, and the follower has ${votingCondition}`, 2, 2],
-    [`log index is equal, its log term is ahead, and the follower has ${votingCondition}`, 2, 2],
-    [`log index is ahead, its log term is equal, and the follower has ${votingCondition}`, 3, 2],
-    [`log index is ahead, its log term is ahead, and the follower has ${votingCondition}`, 3, 3]
-  ]) {
-    if (shouldGrantVote) {
-      context.test(condition, setsTermAndVotes, 3, lastLogIndex, lastLogTerm)
-    } else {
-      context.test(condition, ignoresRequest, 3, lastLogIndex, lastLogTerm)
-    }
+  if (shouldGrantVote) {
+    context.test(`is not outdated, and the follower has ${votingCondition}`, setsTermAndVotes, 3, false)
+  } else {
+    context.test(`is not outdated, and the follower has ${votingCondition}`, ignoresRequest, 3, false)
   }
 }
 

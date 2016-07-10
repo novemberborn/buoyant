@@ -136,4 +136,13 @@ export default class Log {
       this.applier.enqueue(this.getEntry(index), resolve)
     })
   }
+
+  checkOutdated (term, index) {
+    // The other log is outdated if its term is behind this log.
+    if (term < this.lastTerm) return true
+
+    // The other log is outdated if it's shorter than this log, if terms are
+    // equal.
+    return term === this.lastTerm && index < this.lastIndex
+  }
 }

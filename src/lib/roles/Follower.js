@@ -107,8 +107,8 @@ export default class Follower {
     // already granted to the candidate in the current term.
     const allowVote = this.state.votedFor === null || this.state.votedFor === peer.id
     // The candidate's log must be up-to-date however.
-    const notOutdated = this.log.lastIndex <= lastLogIndex && this.log.lastTerm <= lastLogTerm
-    if (allowVote && notOutdated) {
+    const outdated = this.log.checkOutdated(lastLogTerm, lastLogIndex)
+    if (allowVote && !outdated) {
       return this.state.setTermAndVote(term, peer.id).then(() => {
         if (this.destroyed) return
 

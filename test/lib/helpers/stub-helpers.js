@@ -16,7 +16,8 @@ function stubLog () {
     getEntry () {},
     getTerm () {},
     mergeEntries () {},
-    getEntriesSince () {}
+    getEntriesSince () {},
+    checkOutdated () {}
   })
   log._lastIndex.returns(0)
   log.getEntry.returns(undefined)
@@ -25,6 +26,8 @@ function stubLog () {
   log.appendValue.throws(new Error('appendValue() stub must be customized'))
   log.getTerm.throws(new Error('getTerm() stub must be customized'))
   log.getEntriesSince.throws(new Error('getEntriesSince() stub must be customized'))
+
+  log.checkOutdated.returns(false)
 
   return log
 }
