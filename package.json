@@ -57,7 +57,12 @@
   "ava": {
     "babel": {
       "plugins": [
-        ["babel-plugin-module-map", { "dist": "./dist" }],
+        [
+          "babel-plugin-module-map",
+          {
+            "dist": "./dist"
+          }
+        ],
         "transform-async-to-generator",
         "transform-es2015-modules-commonjs",
         "transform-strict-mode"
