@@ -41,10 +41,7 @@ npm install --save buoyant
 
 ## Roadmap
 
-* [Fuzz testing](https://colin-scott.github.io/blog/2015/10/07/fuzzing-raft-for-fun-and-profit/)
-to ensure correct behavior
-* Add proper error types using the
-[`error` package](https://www.npmjs.com/package/error)
+* Add proper error types for internal errors
 * Implement a TCP transport plugin
 * Implement a state persistence plugin
 * Document the public API, implementation requirements, how to build custom
