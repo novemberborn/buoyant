@@ -38,8 +38,8 @@
     "watch:test": "npm run test -- --watch"
   },
   "devDependencies": {
-    "@novemberborn/as-i-preach": "^3.1.1",
-    "ava": "^0.15.2",
+    "@novemberborn/as-i-preach": "^6.0.0",
+    "ava": "^0.16.0",
     "babel-cli": "^6.10.1",
     "babel-core": "^6.9.1",
     "babel-plugin-__coverage__": "^11.0.0",
@@ -47,10 +47,10 @@
     "babel-plugin-transform-es2015-modules-commonjs": "^6.10.3",
     "babel-plugin-transform-strict-mode": "^6.8.0",
     "chalk": "^1.1.3",
-    "es6-error": "^3.0.0",
+    "es6-error": "^4.0.0",
     "lolex": "^1.5.0",
     "metasyntactic-variables": "^1.0.0",
-    "nyc": "^6.6.1",
+    "nyc": "^8.3.2",
     "pirates": "^2.1.1",
     "proxyquire": "^1.7.9",
     "rimraf": "^2.5.2",
